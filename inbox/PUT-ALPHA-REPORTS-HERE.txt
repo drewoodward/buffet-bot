@@ -1,0 +1,12 @@
+Drop Kevin's Alpha Report in this folder.
+
+Any format: .txt, .md, .pdf, .docx, a copy-pasted export. Keep the date in the
+filename if you can (alpha-2026-09-18.txt), though the system reads the date
+from the report itself if it's in there.
+
+What happens next: the post-close cycle at 4:30pm ET checks this folder, and so
+does any manual cycle. The report is hashed on ingest, so dropping the same file
+twice, or dropping it AND pasting it into chat, does not double-count Kevin's
+calls. The original is copied to archive/alpha/ and kept.
+
+Nothing is deleted from this folder automatically.

@@ -1,0 +1,21 @@
+# Live state — never in git. The database is the system's memory, not its source.
+kb.sqlite
+kb.sqlite-journal
+kb.sqlite-wal
+kb.sqlite-shm
+
+# Real config carries the Webull account id and Telegram chat id.
+# config.example.json is the template that ships instead.
+config.json
+
+# Generated and ingested content
+archive/
+charts/
+exports/
+logs/
+inbox/*
+!inbox/PUT-ALPHA-REPORTS-HERE.txt
+
+__pycache__/
+*.pyc
+.DS_Store

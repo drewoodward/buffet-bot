@@ -1,0 +1,28 @@
+{
+  "account_id": "YOUR_WEBULL_ACCOUNT_ID",
+  "execution_mode": "paper",
+  "_execution_mode_note": "paper | live. Flipping to live changes which Broker implementation the Execution Agent uses. It does NOT remove the approval gate -- that sits above both.",
+  "risk": {
+    "per_trade_pct": 10.0,
+    "per_ticker_pct": 20.0,
+    "daily_loss_halt_pct": 8.0,
+    "require_stop": true,
+    "pdt_equity_floor": 25000.0,
+    "pdt_max_day_trades": 3,
+    "allow_averaging_down": false
+  },
+  "materiality": {
+    "alert_threshold": 8,
+    "report_threshold": 5,
+    "_note": "Sum of four 0-3 axes: price_move, thesis_impact, novelty, position_weight. >=8 alerts immediately, 5-7 goes in the next scheduled report, below 5 is logged only."
+  },
+  "telegram_chat_id": "YOUR_TELEGRAM_CHAT_ID",
+  "timezone": "America/New_York",
+  "options_source": "schwab",
+  "_options_source_note": "schwab | none. Enables the Technical Analyst's options section.",
+  "live_direct": {
+    "require_confirmation_link": true,
+    "require_attended_session": true,
+    "_note": "Both gates apply only to execution_mode=live_direct. require_confirmation_link routes the final submit through Webull's instruction flow so a human still sees the ticket. require_attended_session refuses direct execution in a scheduled run, falling back to live_instruction. Turning either off is a deliberate decision, not a default."
+  }
+}
