@@ -1,0 +1,17 @@
+[Unit]
+Description=TradingView chart with CDP debug port for buffet bot
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/chromium-browser \
+  --remote-debugging-port=9222 \
+  --remote-allow-origins=* \
+  --user-data-dir=%h/.tv-profile \
+  --no-first-run --no-default-browser-check \
+  --disable-features=Translate,MediaRouter \
+  https://www.tradingview.com/chart/Lqza3vpj/
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

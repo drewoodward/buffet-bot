@@ -1,0 +1,10 @@
+[Unit]
+Description=buffet bot — %i cycle
+After=network-online.target tradingview-cdp.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/buffet-bot
+ExecStart=%h/buffet-bot/run-cycle.sh %i
+TimeoutStartSec=1800

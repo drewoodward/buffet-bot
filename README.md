@@ -37,6 +37,32 @@ Ask Claude, in a conversation linked to a computer that has this folder:
 or `postclose`, or `alpha` after dropping a report in an inbox. The orchestrator
 procedure is identical to the scheduled path -- the schedule is just a clock.
 
+## Running on millie (Claude Code, headless)
+
+The Desktop app is not required. On millie the cycles run through Claude Code in
+headless mode, driven by systemd timers:
+
+    cycles/*.md          the prompt for each cycle
+    run-cycle.sh         wraps `claude -p` with the right flags
+    systemd/             three timers + the chromium CDP service
+    .mcp.json            ALL FOUR MCP servers, one file
+    .claude/agents/      the four subagents, with tool access enforced
+
+Setup: `systemd/INSTALL.md`.
+
+Two things this host does better than the Desktop one:
+
+**Tool restrictions become real.** On the Desktop host the subagent boundaries
+were prose — the Technical Analyst was *told* not to read news. Here the `tools:`
+line in each `.claude/agents/*.md` is an allowlist the runtime enforces, so it
+has no news tool to reach for. Same for the Knowledge Base Agent, which has no
+market data tools at all.
+
+**Daylight saving stops being a problem.** The scheduled tasks on the old host
+ran on UTC cron, so the cycles drifted an hour every March and November and had
+to be moved by hand. `OnCalendar=Mon-Fri 07:00:00 America/New_York` tracks the
+zone itself.
+
 ## Where things run
 
 Every cycle runs in the **cloud container**: the workspace is staged up, the work

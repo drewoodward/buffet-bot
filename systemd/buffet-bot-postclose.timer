@@ -1,0 +1,10 @@
+[Unit]
+Description=buffet bot — post-close cycle, 4:30pm Eastern, weekdays
+
+[Timer]
+OnCalendar=Mon-Fri 16:30:00 America/New_York
+Persistent=false
+Unit=buffet-bot@postclose.service
+
+[Install]
+WantedBy=timers.target

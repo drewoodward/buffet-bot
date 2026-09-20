@@ -1,0 +1,10 @@
+[Unit]
+Description=buffet bot — Alpha Report check, 9:10am Eastern, weekdays
+
+[Timer]
+OnCalendar=Mon-Fri 09:10:00 America/New_York
+Persistent=false
+Unit=buffet-bot@alpha-check.service
+
+[Install]
+WantedBy=timers.target
