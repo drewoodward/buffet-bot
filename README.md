@@ -399,77 +399,72 @@ DASHBOARD.md     where reports are published and in what shape
 
 ## Running a cycle by hand
 
-Ask Claude, in a conversation linked to a computer that has this folder:
+```bash
+./run-cycle.sh premarket    # or alpha-check, or postclose
+```
 
-> Run the pre-market cycle from the trading-agent folder.
-
-or `postclose`, or `alpha` after dropping a report in an inbox. The orchestrator
-procedure is identical to the scheduled path -- the schedule is just a clock.
+or, in an interactive Claude Code session in this folder: "Run the pre-market
+cycle." The orchestrator procedure is identical to the scheduled path -- the
+schedule is just a clock.
 
 ## Running on millie (Claude Code, headless)
 
-The Desktop app is not required. On millie the cycles run through Claude Code in
-headless mode, driven by systemd timers:
+**millie is the only host.** The old host (mochi, Claude Desktop + cloud
+scheduled tasks) has been decommissioned -- see CLAUDE.md's migration state
+for when and why. Every cycle, scheduled or by hand, runs through Claude Code
+in headless mode on millie, driven by systemd timers:
 
     cycles/*.md          the prompt for each cycle
     run-cycle.sh         wraps `claude -p` with the right flags
     systemd/             three timers + the chromium CDP service
-    .mcp.json            ALL FOUR MCP servers, one file
+    .mcp.json            the local MCP servers (TradingView, Telegram, Schwab)
     .claude/agents/      the four subagents, with tool access enforced
 
-Setup: `systemd/INSTALL.md`.
+Setup: see "Setup" above, or `systemd/INSTALL.md` for just the timers.
 
-Two things this host does better than the Desktop one:
+Two things this host does that the old one couldn't:
 
-**Tool restrictions become real.** On the Desktop host the subagent boundaries
-were prose — the Technical Analyst was *told* not to read news. Here the `tools:`
-line in each `.claude/agents/*.md` is an allowlist the runtime enforces, so it
-has no news tool to reach for. Same for the Knowledge Base Agent, which has no
-market data tools at all.
+**Tool restrictions are real, not prose.** On the old Desktop host the
+subagent boundaries were just instructions -- the Technical Analyst was
+*told* not to read news. Here the `tools:` line in each `.claude/agents/*.md`
+is an allowlist the runtime enforces, so it has no news tool to reach for.
+Same for the Knowledge Base Agent, which has no market data tools at all.
 
-**Daylight saving stops being a problem.** The scheduled tasks on the old host
-ran on UTC cron, so the cycles drifted an hour every March and November and had
-to be moved by hand. `OnCalendar=Mon-Fri 07:00:00 America/New_York` tracks the
+**Daylight saving stops being a problem.** The old host's scheduler ran on
+UTC cron, so the cycles drifted an hour every March and November and had to
+be moved by hand. `OnCalendar=Mon-Fri 07:00:00 America/New_York` tracks the
 zone itself.
 
 ## Where things run
 
-Every cycle runs in the **cloud container**: the workspace is staged up, the work
-happens there, and `kb.sqlite` is committed back and verified. There is no
-second path and no dependency on the desktop's Linux shell, which is unreliable
-on Windows (a known, open bug). One path that always runs beats a fast path plus
-a fallback nobody exercises.
-
-What still has to be local, and therefore still ties the scheduled cycles to
-`mochi`: **TradingView, Telegram and Schwab run as MCP servers on that machine.**
-Charting, alerting and options chains come from there. That is why the scheduled
-tasks are bound to mochi, and it is the right place for them -- mochi is always on.
-
-## Working from the Mac
-
-The folder is in OneDrive, so it syncs. Everything in `lib/`, `agents/` and the
-docs can be read and edited from any machine, and a cycle run from a Mac session
-follows the identical procedure.
-
-Two caveats:
-
-1. **The three local MCP servers do not travel.** A Mac session has no
-   TradingView, Telegram or Schwab until those are set up there too.
-2. **Only mochi writes `kb.sqlite`.** OneDrive resolves a two-machine write by
-   creating a "conflicted copy", which silently drops one side's work. Read it
-   from anywhere; let the scheduled cycles on mochi own the writes. To change
-   that, move the database off the synced folder first.
+Every cycle runs directly on millie: `run-cycle.sh` invokes `claude -p` with
+the cycle's prompt, in this folder, over the local filesystem. There is no
+cloud container, no staging step, and no second machine in the loop --
+`kb.sqlite` is read and written right here and committed with a plain `git
+commit`. TradingView, Telegram, and (once it exists) Schwab run as local MCP
+servers on millie; Google Drive, Google Calendar, Webull, and Alpha Vantage
+are `claude.ai` account-level connectors that need no local server at all
+(see DATA-SOURCES.md). One machine, one path, nothing to keep in sync.
 
 ## Scheduled
 
-- Pre-market, 7:00am Eastern, weekdays
-- Post-close, 4:30pm Eastern, weekdays
+| Cycle | Time (America/New_York) | What it does |
+|---|---|---|
+| `premarket` | 7:00am, weekdays | Full report: charts, news, positions, catalysts |
+| `alpha-check` | 9:10am, weekdays | Checks for Kevin's Alpha Report and ingests/scores it if one has arrived |
+| `postclose` | 4:30pm, weekdays | End-of-day recap |
 
-Both are bound to `mochi`, because TradingView, Telegram and Schwab run there.
+All three run on millie via `systemctl --user list-timers 'buffet-bot*'`.
+`alpha-check` is 10 minutes after 9:00am deliberately -- Kevin's report
+usually lands by 9:00, so checking exactly on the hour risks catching it a
+minute early on a slow day; the buffer trades a few minutes of latency for
+not missing it. Adjust `systemd/buffet-bot-alpha.timer`'s `OnCalendar` if you
+want it tighter.
 
-**Daylight saving:** the scheduler works in UTC, so these shift by an hour when
-US clocks change on 1 November 2026. They become 6:00am and 3:30pm Eastern until
-the crons are moved back an hour.
+**Daylight saving:** the scheduler works in UTC underneath, so these shift by
+an hour when US clocks change on 1 November 2026 -- `systemd`'s
+`America/New_York` `OnCalendar` handles this automatically; nothing to move
+by hand, unlike the old host's UTC cron.
 
 ## Useful commands
 

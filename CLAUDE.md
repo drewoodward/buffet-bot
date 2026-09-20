@@ -88,13 +88,36 @@ Done:
   API key.
 - **`kb.sqlite`** moved from mochi (holds Kevin's scored calls), integrity
   verified with `python3 lib/kb.py fingerprint`.
-- A full premarket dry run on millie: health checks, both Alpha Report
-  inboxes, and a real Telegram alert all confirmed working. The cycle
-  correctly hard-stopped at the portfolio refresh, back when the Webull
-  connector wasn't yet wired into `--allowedTools` — worth re-running now
-  that it is.
+- A full premarket dry run on millie, twice: the first correctly hard-stopped
+  at the portfolio refresh (Webull connector not yet wired into
+  `--allowedTools`); the second, after that fix, ran the whole way through —
+  real subagent fan-out, real chart captures, real Telegram delivery, both
+  Alpha Report inboxes checked, `cycles` row opened and closed correctly.
+- `execution-agent.md`'s tool line now has `mcp__claude_ai_Webull__*` added,
+  for `live_instruction`'s `place_stock_instruction` (creates a confirmation
+  link, never executes on its own).
+- **systemd timers, installed and enabled on millie**: `premarket` (7:00am),
+  `alpha-check` (9:10am — this is the Kevin's-Alpha-Report ingestion cycle;
+  it already existed, it just wasn't turned on), `postclose` (4:30pm), all
+  America/New_York, weekdays. `tradingview-cdp.service` enabled too, and
+  `loginctl enable-linger` set so they survive logout. See `systemd/INSTALL.md`.
+- **millie is now the primary host, as of 20 Sep 2026.** A full cycle has run
+  clean on millie and `kb.sqlite` has been moved over deliberately — the two
+  conditions this file used to say to wait for before touching mochi.
+  README.md's "Where things run" and "Scheduled" sections describe the
+  current, millie-only architecture; ignore anything elsewhere that still
+  describes a cloud-container staging step or a Mac/OneDrive multi-host
+  setup, both are pre-migration history now.
 
 Not done:
+- **Decommissioning mochi's scheduled tasks.** Andre asked for this on 20 Sep
+  2026. Nothing in this toolset can reach it: `CronList`/`CronDelete` here
+  only manage jobs created by *this* Claude Code session, not mochi's Claude
+  Desktop scheduled tasks, and there's no SSH/API path into that machine's
+  Desktop app from millie. This has to be done by Andre, directly on mochi,
+  in Claude Desktop's own scheduled-tasks UI. Don't mark this done until
+  confirmed, and don't assume it's done just because millie is running --
+  the two hosts could otherwise both be running cycles unnoticed.
 - **`live_direct` — the actual Webull Open API server.** This is the one
   genuinely-local, not-yet-built piece: real order placement, distinct from
   the `claude.ai` connector above. Blocked on Andre's account being funded
@@ -102,21 +125,11 @@ Not done:
   `mcp__webull__*` reserved for it in its tool allowlist; don't add that
   prefix to any *standing* allow anywhere else when it lands — CLAUDE.md's
   execution-safety section below explains why.
-- **`execution-agent.md`'s tool line needs `mcp__claude_ai_Webull__*` added**
-  (for `live_instruction`'s `place_stock_instruction`, which only creates a
-  confirmation link, never executes). Attempted and blocked by the
-  permission classifier as a sensitive grant — needs Andre to make this one
-  edit by hand, or approve it directly.
 - **Schwab MCP server** — still not connected. Unlike Webull, this really is
   a local server Andre is standing up; see DATA-SOURCES.md.
-- **systemd timers** — see `systemd/INSTALL.md`.
 - **The dashboard.** It is a Cowork artifact written with tools Claude Code may
   not have. Unverified. Telegram works regardless; if the artifact write fails,
   that reporting surface needs rethinking.
-
-The old host (mochi, Claude Desktop + cloud scheduled tasks) is still running
-and still authoritative. Do not decommission it until a full cycle has run on
-millie and the database has been moved deliberately.
 
 ## Execution safety
 
