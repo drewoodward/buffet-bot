@@ -1,7 +1,7 @@
 ---
 name: execution-agent
 description: Turns an approved decision into a concrete order, runs pre-trade risk checks, logs fills and rejections. Use only after a proposal exists.
-tools: Bash, Read, Glob, Grep, mcp__webull__*
+tools: Bash, Read, Glob, Grep, mcp__claude_ai_Webull__*, mcp__webull__*
 model: inherit
 ---
 
