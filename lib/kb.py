@@ -362,6 +362,37 @@ def cmd_log_decision(args):
     print(json.dumps({"ok": True, "id": cur.lastrowid}))
 
 
+def cmd_cycle_open(args):
+    """Step 1 of a cycle: the row every other write this cycle hangs off of."""
+    p = json.loads(args.json)
+    conn = connect()
+    existing = conn.execute("SELECT cycle_id FROM cycles WHERE cycle_id=?", (p["cycle_id"],)).fetchone()
+    if existing:
+        print(json.dumps({"ok": False, "error": f"cycle_id {p['cycle_id']} already exists — generate a fresh one"}))
+        sys.exit(2)
+    conn.execute(
+        "INSERT INTO cycles(cycle_id,phase,started_at,status) VALUES(?,?,?,?)",
+        (p["cycle_id"], p["phase"], now(), "running"),
+    )
+    conn.commit()
+    print(json.dumps({"ok": True, "cycle_id": p["cycle_id"], "phase": p["phase"]}))
+
+
+def cmd_cycle_close(args):
+    """Step 9: close out the row opened at step 1, with the outcome and why."""
+    p = json.loads(args.json)
+    conn = connect()
+    cur = conn.execute(
+        "UPDATE cycles SET finished_at=?, status=?, summary=? WHERE cycle_id=?",
+        (now(), p["status"], p.get("summary"), p["cycle_id"]),
+    )
+    conn.commit()
+    if cur.rowcount == 0:
+        print(json.dumps({"ok": False, "error": f"no cycle row for cycle_id {p['cycle_id']} — was cycle-open called?"}))
+        sys.exit(2)
+    print(json.dumps({"ok": True, "cycle_id": p["cycle_id"], "status": p["status"]}))
+
+
 def cmd_source_status(args):
     p = json.loads(args.json)
     conn = connect()
@@ -423,7 +454,8 @@ def main():
 
     for name, fn in [("sync-positions", cmd_sync_positions), ("set-thesis", cmd_set_thesis),
                      ("add-event", cmd_add_event), ("log-decision", cmd_log_decision),
-                     ("source-status", cmd_source_status)]:
+                     ("source-status", cmd_source_status), ("cycle-open", cmd_cycle_open),
+                     ("cycle-close", cmd_cycle_close)]:
         p = sub.add_parser(name)
         p.add_argument("--json", required=True)
         p.set_defaults(func=fn)

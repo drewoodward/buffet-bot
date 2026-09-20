@@ -15,7 +15,8 @@ Phases: `premarket` (07:00 ET), `postclose` (16:30 ET), `alpha` (on report drop)
 ## Cycle procedure
 
 **1. Open the cycle.**
-Generate a cycle id: `<phase>-<UTC timestamp>`. Insert a row into `cycles`.
+Generate a cycle id: `<phase>-<UTC timestamp>`. Insert a row into `cycles` with
+`python3 lib/kb.py cycle-open --json '{"cycle_id": "...", "phase": "..."}'`.
 Everything you log this cycle carries that id, so the whole run can be
 reconstructed afterwards from the `decisions` table alone.
 
@@ -154,7 +155,11 @@ Put the source in every description ("From Kevin's Alpha Report, <date>") so a
 calendar entry can always be traced back to what claimed it.
 
 **9. Close the cycle.**
-Update the `cycles` row with status and a one-line summary.
+Update the `cycles` row with status and a one-line summary:
+`python3 lib/kb.py cycle-close --json '{"cycle_id": "...", "status": "...", "summary": "..."}'`.
+Do this even when the cycle halted early -- a halt is a status, not an
+exemption. A row stuck with `finished_at` unset is exactly what `fingerprint`'s
+`unfinished_cycles` check exists to catch.
 
 ## Where the shell runs — the cloud, always
 
