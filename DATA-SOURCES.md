@@ -7,7 +7,7 @@ This routing is not arbitrary. It was rebuilt after testing every connector on
 
 | Source | State | Consequence |
 |---|---|---|
-| Webull | Full access, no cap found | Promoted to primary for quotes, fundamentals, analyst data, filings, earnings |
+| Webull | `claude.ai` account connector, full access, no local setup | Primary for quotes, fundamentals, analyst data, filings, earnings, positions |
 | TradingView | Live on mochi, CDP connected | Primary for all charting, indicators, levels |
 | Alpha Vantage | **Free tier: 25 requests/day**, 1 req/sec | Demoted to macro-only, cached hard |
 | Alpha Vantage options | **Premium endpoint — returns fake sample data** | No options chain source exists (see below) |
@@ -23,12 +23,28 @@ This routing is not arbitrary. It was rebuilt after testing every connector on
 `data_get_ohlcv`, `data_get_indicator`, `chart_manage_indicator`, `capture_screenshot`.
 Free, local, no quota. This is why the Technical Analyst never touches Alpha Vantage.
 
-**Quotes and snapshots** -> Webull `get_stock_snapshot` (supports up to 100 symbols
-in one call, and extended-hours flags for the pre-market cycle).
+**Quotes and snapshots, positions, account balance** -> Webull, via
+`mcp__claude_ai_Webull__*`: `get_stock_snapshot` (supports up to 100 symbols in
+one call, and extended-hours flags for the pre-market cycle), `get_account_list`,
+`get_account_positions`, `get_account_balance`. This is the same kind of
+account-level `claude.ai` connector as Drive and Calendar -- there is no local
+`webull-mcp` server to set up or copy from mochi for any of this, and there
+never was; the read side of "Webull" has always been this connector, on
+mochi and on millie alike.
 
-**Fundamentals, analyst actions, filings, earnings** -> Webull:
+**Fundamentals, analyst actions, filings, earnings** -> Webull, same connector:
 `get_analyst_rating`, `get_analyst_target_price`, `get_stock_filings`,
 `get_stock_earnings_calendar`, `get_financial_indicators`, `get_income_statement`.
+
+**Order execution is a separate thing from all of the above**, and only
+matters once `config.json -> execution_mode` leaves `paper`. See
+`.claude/agents/execution-agent.md` for the three broker implementations:
+`paper` calls no broker at all; `live_instruction` uses this same
+`mcp__claude_ai_Webull__*` connector's `place_stock_instruction` (creates a
+confirmation link, does not execute); `live_direct` is a genuinely separate,
+not-yet-built local MCP server on Webull's Open API, gated on a funded account
+and an API key. Don't conflate the two -- a working connector for reads and
+`live_instruction` says nothing about whether `live_direct` exists yet.
 
 **Second Alpha Report inbox** -> Google Drive, folder "Alpha Reports — trading
 agent inbox" (id `1e0hVEcc4TUv95SXd2uqldLbNjELbnqWW`), via

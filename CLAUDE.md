@@ -62,19 +62,53 @@ Chromium runs with `--remote-debugging-port=9222` and the chart open; the
 TradingView MCP attaches over Chrome DevTools Protocol. It does not need the
 TradingView desktop app — any Chromium serving the same web app works.
 
-## Migration state (as of 19 Sep 2026)
+## Migration state (as of 20 Sep 2026)
 
 Done:
 - TradingView MCP working. `npm run tv -- status` reports connected.
 - `.mcp.json`, `.claude/agents/`, `cycles/`, `systemd/` all committed.
+- **Telegram MCP** copied from mochi, wired up, verified end-to-end (`getMe`,
+  `getChat`, and a real `sendMessage` all confirmed).
+- **Google Drive and Google Calendar** — turned out to need no migration at
+  all. Both are `claude.ai` account-level connectors, not local MCP servers;
+  they work headlessly on millie once `run-cycle.sh`'s `--allowedTools`
+  grants them, which it now does. Verified live against the real Drive
+  folder and calendar.
+- **Webull, for data and for `live_instruction`** — same discovery as Drive
+  and Calendar. There is no local `webull-mcp` server to copy from mochi and
+  there never was one; Andre was only ever using the `claude.ai` Webull
+  connector there too. `run-cycle.sh` and `news-agent.md` now point at
+  `mcp__claude_ai_Webull__*` instead of the nonexistent local prefix. See
+  DATA-SOURCES.md for the full routing.
+- **`config.json`** exists, `execution_mode: paper` (unchanged default),
+  `telegram_chat_id` filled in, `options_source: none` (Schwab isn't up).
+  `account_id` is still a placeholder — deliberately: it isn't read by any
+  code path yet, and Andre's real funded account with Open API access
+  arrives Tuesday 22 Sep, at which point it gets filled in alongside the
+  API key.
+- **`kb.sqlite`** moved from mochi (holds Kevin's scored calls), integrity
+  verified with `python3 lib/kb.py fingerprint`.
+- A full premarket dry run on millie: health checks, both Alpha Report
+  inboxes, and a real Telegram alert all confirmed working. The cycle
+  correctly hard-stopped at the portfolio refresh, back when the Webull
+  connector wasn't yet wired into `--allowedTools` — worth re-running now
+  that it is.
 
 Not done:
-- **Telegram, Schwab, Webull MCP servers** — `.mcp.json` points at paths under
-  `~/mcp/` that do not exist yet. Copy them from the Windows machine (mochi).
-- **`config.json`** — `cp config.example.json config.json` and fill in
-  `account_id` and `telegram_chat_id`.
-- **`kb.sqlite`** — `python3 lib/kb.py init`, or move the populated one from
-  mochi, which holds Kevin's scored calls.
+- **`live_direct` — the actual Webull Open API server.** This is the one
+  genuinely-local, not-yet-built piece: real order placement, distinct from
+  the `claude.ai` connector above. Blocked on Andre's account being funded
+  (Tuesday 22 Sep) and an Open API key. `execution-agent.md` already has
+  `mcp__webull__*` reserved for it in its tool allowlist; don't add that
+  prefix to any *standing* allow anywhere else when it lands — CLAUDE.md's
+  execution-safety section below explains why.
+- **`execution-agent.md`'s tool line needs `mcp__claude_ai_Webull__*` added**
+  (for `live_instruction`'s `place_stock_instruction`, which only creates a
+  confirmation link, never executes). Attempted and blocked by the
+  permission classifier as a sensitive grant — needs Andre to make this one
+  edit by hand, or approve it directly.
+- **Schwab MCP server** — still not connected. Unlike Webull, this really is
+  a local server Andre is standing up; see DATA-SOURCES.md.
 - **systemd timers** — see `systemd/INSTALL.md`.
 - **The dashboard.** It is a Cowork artifact written with tools Claude Code may
   not have. Unverified. Telegram works regardless; if the artifact write fails,

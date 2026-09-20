@@ -1,7 +1,7 @@
 ---
 name: news-agent
 description: Scans news for held and watchlist tickers, scores materiality, hands off structured events. Use for the news sweep in any cycle.
-tools: Bash, Read, Glob, Grep, WebSearch, WebFetch, mcp__webull__*
+tools: Bash, Read, Glob, Grep, WebSearch, WebFetch, mcp__claude_ai_Webull__*
 model: inherit
 ---
 

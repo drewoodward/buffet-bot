@@ -25,7 +25,7 @@ claude -p "$(cat "cycles/$PHASE.md")" \
   --mcp-config .mcp.json \
   --permission-mode acceptEdits \
   --permission-prompts none \
-  --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebSearch,WebFetch,Agent,ToolSearch,mcp__tradingview__*,mcp__telegram__*,mcp__schwab__*,mcp__webull__*,mcp__claude_ai_Google_Drive__*,mcp__claude_ai_Google_Calendar__*" \
+  --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebSearch,WebFetch,Agent,ToolSearch,mcp__tradingview__*,mcp__telegram__*,mcp__schwab__*,mcp__claude_ai_Webull__*,mcp__claude_ai_Google_Drive__*,mcp__claude_ai_Google_Calendar__*" \
   --output-format json \
   >> "$LOG" 2>&1
 

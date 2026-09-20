@@ -15,10 +15,6 @@
     "schwab": {
       "command": "python3",
       "args": ["/home/millie/mcp/schwab-mcp/server.py"]
-    },
-    "webull": {
-      "command": "python3",
-      "args": ["/home/millie/mcp/webull-mcp/server.py"]
     }
   }
 }
