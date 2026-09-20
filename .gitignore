@@ -8,6 +8,10 @@ kb.sqlite-shm
 # config.example.json is the template that ships instead.
 config.json
 
+# Telegram bot token + chat id, read as env vars by mcp/telegram-mcp.
+# .env.example is the template that ships instead.
+.env
+
 # Generated and ingested content
 archive/
 charts/

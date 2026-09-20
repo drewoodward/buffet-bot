@@ -6,7 +6,11 @@
     },
     "telegram": {
       "command": "python3",
-      "args": ["/home/millie/mcp/telegram-mcp/server.py"]
+      "args": ["/home/millie/mcp/telegram-mcp/telegram_mcp.py"],
+      "env": {
+        "TELEGRAM_BOT_TOKEN": "${TELEGRAM_BOT_TOKEN}",
+        "TELEGRAM_CHAT_ID": "${TELEGRAM_CHAT_ID}"
+      }
     },
     "schwab": {
       "command": "python3",
