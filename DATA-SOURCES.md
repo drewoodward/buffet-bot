@@ -14,6 +14,8 @@ This routing is not arbitrary. It was rebuilt after testing every connector on
 | Firecrawl | **Free MCP tier, already rate limited** | Not used |
 | WebSearch (built-in) | Working | Primary news source |
 | Telegram | Bot @finbud_buffet_bot resolves to "Woody" | Alert channel, text only, ~300 char |
+| Google Drive | claude.ai account connector, no local setup needed | Second Alpha Report inbox, orchestrator-only |
+| Google Calendar | claude.ai account connector, no local setup needed | Catalyst dates, orchestrator-only |
 
 ## Routing
 
@@ -27,6 +29,23 @@ in one call, and extended-hours flags for the pre-market cycle).
 **Fundamentals, analyst actions, filings, earnings** -> Webull:
 `get_analyst_rating`, `get_analyst_target_price`, `get_stock_filings`,
 `get_stock_earnings_calendar`, `get_financial_indicators`, `get_income_statement`.
+
+**Second Alpha Report inbox** -> Google Drive, folder "Alpha Reports — trading
+agent inbox" (id `1e0hVEcc4TUv95SXd2uqldLbNjELbnqWW`), via
+`mcp__claude_ai_Google_Drive__search_files` / `download_file_content`. This is
+a `claude.ai`-account-level connector, not a local MCP server like TradingView
+or Telegram -- it needs no OAuth setup on millie and travels with the account
+to any machine. The orchestrator checks it directly in step 2b; no subagent
+touches Drive. See `agents/orchestrator.md`.
+
+**Catalyst dates** -> Google Calendar, primary calendar `drewoodward@gmail.com`
+(America/New_York), via `mcp__claude_ai_Google_Calendar__*`. Same
+account-level connector as Drive, same reason it needs nothing local. Written
+by the orchestrator ONLY, in step 8b, after the Knowledge Base Agent has
+recorded the catalyst -- never by the News Agent directly, even though News is
+what spots the date. That keeps the one-writer boundary intact: subagents stay
+narrowly scoped, and only the orchestrator touches a surface that's visible to
+Andre outside the dashboard and Telegram.
 
 **News** -> WebSearch, one query per held ticker plus one macro sweep.
 Not Alpha Vantage NEWS_SENTIMENT: at 25 requests/day, a five-ticker morning

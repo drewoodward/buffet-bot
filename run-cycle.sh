@@ -9,6 +9,11 @@ cd "$ROOT"
 
 [[ -f "cycles/$PHASE.md" ]] || { echo "no such cycle: $PHASE" >&2; exit 2; }
 [[ -f config.json ]] || { echo "config.json missing — cp config.example.json config.json" >&2; exit 2; }
+[[ -f .env ]] || { echo ".env missing — cp .env.example .env" >&2; exit 2; }
+
+set -a
+source .env
+set +a
 
 mkdir -p logs
 LOG="logs/$(date -u +%Y-%m-%d)_${PHASE}.jsonl"
@@ -20,7 +25,7 @@ claude -p "$(cat "cycles/$PHASE.md")" \
   --mcp-config .mcp.json \
   --permission-mode acceptEdits \
   --permission-prompts none \
-  --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebSearch,WebFetch,Agent,mcp__tradingview__*,mcp__telegram__*,mcp__schwab__*,mcp__webull__*" \
+  --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebSearch,WebFetch,Agent,ToolSearch,mcp__tradingview__*,mcp__telegram__*,mcp__schwab__*,mcp__webull__*,mcp__claude_ai_Google_Drive__*,mcp__claude_ai_Google_Calendar__*" \
   --output-format json \
   >> "$LOG" 2>&1
 
