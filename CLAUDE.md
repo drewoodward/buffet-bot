@@ -34,6 +34,23 @@ are the design, not an oversight:
   closed without it. The check used to read the local clock, and two machines
   were found 81 minutes apart — at 08:17 ET, market shut, it reported
   "regular session, 09:38 ET" and PASSED. Fetch it from the venue, always.
+- **`run-cycle.sh`'s `--allowedTools` has to actually grant Alpha Vantage.**
+  Found 21 Sep 2026: the orchestrator's own required `MARKET_STATUS` call
+  (see above) was being silently denied under `--permission-prompts none`
+  because `mcp__claude_ai_Alpha_Vantage_MCP_Server__*` was never in the
+  top-level allowlist — only the other connectors were. Every headless cycle
+  since Alpha Vantage was wired in had likely been failing the venue-status
+  check closed without anyone noticing, because a closed check just rejects
+  proposals quietly rather than erroring loudly. If a future connector gets
+  added to `agents/orchestrator.md` or a cycle prompt, it also has to be
+  added to `run-cycle.sh`'s `--allowedTools` — granting a connector to the
+  account is not the same as granting it to the unattended run.
+- **The systemd user manager does not reliably inherit your shell's `PATH`.**
+  Found 21 Sep 2026: a timer-triggered cycle failed instantly with `claude:
+  command not found` (exit 127) even though `claude` resolves fine
+  interactively. Fixed with an explicit `Environment=PATH=...` line in
+  `systemd/buffet-bot@.service` — don't remove it as dead-looking
+  boilerplate.
 - **Charts ship as PNG, never SVG.** An SVG in an `<img>` cannot see the host
   page's CSS. The first version referenced classes defined in the dashboard
   stylesheet and every shape fell back to SVG's default fill — solid black

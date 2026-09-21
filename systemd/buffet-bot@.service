@@ -6,5 +6,10 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=%h/buffet-bot
+# The user systemd manager doesn't reliably inherit an interactive shell's
+# PATH (it depends on what, if anything, imported it since boot). Without
+# this, `claude` resolves fine by hand but the timer-triggered run fails
+# with "claude: command not found" (exit 127) — happened on millie 21 Sep.
+Environment=PATH=%h/.local/bin:%h/bin:/usr/local/bin:/usr/bin:/var/lib/snapd/snap/bin
 ExecStart=%h/buffet-bot/run-cycle.sh %i
 TimeoutStartSec=1800
