@@ -110,10 +110,23 @@ proposal is still reported -- he should see what was proposed and which limit
 stopped it, not silence.
 
 **8. Deliver.**
-Write the full report to the dashboard, then send the Telegram ping.
-The dashboard address, the report document shape and the chart upload path are
-in DASHBOARD.md -- read it. You write a row to the artifact's database; you do
-not republish the page.
+Publish the report locally, write it to the dashboard, then send the Telegram
+ping -- in that order. The report document shape, the dashboard address and the
+chart upload path are in DASHBOARD.md -- read it. You write a row to the
+artifact's database; you do not republish the page.
+
+The local publish is one command, and it takes the same document:
+
+    python3 lib/publish.py <path to the report json>
+
+It drops any key that is not part of the published shape and tells you which
+ones it dropped. If it reports a dropped key you did not expect, say so in the
+cycle row rather than ignoring it -- that directory is readable by the
+dashboard's Linux user, so a field arriving there unplanned is the one thing
+this step exists to catch. Charts go across by putting the PNG's local path in
+a signal's `chart_path`; `publish.py` copies the file and rewrites the
+reference. Do not hand it a path inside `/home/millie` expecting the dashboard
+to read it directly -- that home directory is `0700` and stays that way.
 
 Telegram is `send_telegram_message`, capped near 300 characters. Send the five
 lines that matter plus the dashboard link, nothing else -- the detail lives on

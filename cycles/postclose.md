@@ -18,7 +18,8 @@ Read agents/orchestrator.md and follow it. Delegate to the subagents in .claude/
   7. Prune dashboard reports older than 90 days, keeping each month's last one.
   8. Log the day's decisions with their inputs.
 
-DELIVERY: dashboard row, then Telegram under 300 characters — day P/L, anything filled,
+DELIVERY: publish locally (python3 lib/publish.py), dashboard row, then Telegram under
+300 characters — day P/L, anything filled,
 staleness flags needing input, Kevin's running record if it changed. Full https:// URL.
 
 Run lib/kb.py fingerprint at the start and again at the end; the counts must reflect

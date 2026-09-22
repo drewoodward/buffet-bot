@@ -22,7 +22,8 @@ PHASE: premarket. Deliver the morning report:
 Check both Alpha Report inboxes before starting: inbox/ and the Google Drive folder.
 Ingest is content-hashed, so checking both cannot double-count.
 
-DELIVERY: write the dashboard row, then ONE Telegram message under 300 characters with
+DELIVERY: publish locally (python3 lib/publish.py), write the dashboard row, then ONE
+Telegram message under 300 characters with
 the five lines that matter plus the dashboard link as a FULL https:// URL — Telegram
 does not linkify a bare domain.
 

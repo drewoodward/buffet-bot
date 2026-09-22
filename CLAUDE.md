@@ -74,6 +74,15 @@ are the design, not an oversight:
     ~/buffet-bot/          this repo
     ~/mcp/                 the MCP servers, one dir each
     ~/.tv-profile          chromium profile holding the TradingView login
+    /srv/buffet-bot/       the one-way publish directory (see DASHBOARD.md)
+    /home/openclaw/        the OpenClaw dashboard, a SEPARATE Linux user
+
+OpenClaw runs as its own user, uid 1001, deliberately. It is an AI agent with
+a published history of prompt-injection and credential-exfiltration issues, so
+it gets no credentials, no write access to anything here, and cannot traverse
+`/home/millie` at all. It reads `/srv/buffet-bot` and nothing else. Do not
+"simplify" this by running it as millie or by loosening `/home/millie` from
+`0700` — the isolation is the filesystem's job, not a configuration promise.
 
 Chromium runs with `--remote-debugging-port=9222` and the chart open; the
 TradingView MCP attaches over Chrome DevTools Protocol. It does not need the
@@ -144,9 +153,13 @@ Not done:
   execution-safety section below explains why.
 - **Schwab MCP server** — still not connected. Unlike Webull, this really is
   a local server Andre is standing up; see DATA-SOURCES.md.
-- **The dashboard.** It is a Cowork artifact written with tools Claude Code may
-  not have. Unverified. Telegram works regardless; if the artifact write fails,
-  that reporting surface needs rethinking.
+- **The dashboard.** The Cowork artifact is still a Cowork artifact written
+  with tools Claude Code may not have, and still unverified. What is now in
+  place is a second, local surface that does not depend on it: cycles publish
+  the same report document to `/srv/buffet-bot` via `lib/publish.py`, and the
+  OpenClaw dashboard reads it from there. Telegram works regardless of both.
+  Still to do: point the OpenClaw dashboard at `latest.json` and render it —
+  nothing consumes the published files yet.
 
 ## Execution safety
 

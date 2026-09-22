@@ -18,6 +18,7 @@
   },
   "telegram_chat_id": "YOUR_TELEGRAM_CHAT_ID",
   "timezone": "America/New_York",
+  "publish_dir": "/srv/buffet-bot",
   "options_source": "schwab",
   "_options_source_note": "schwab | none. Enables the Technical Analyst's options section.",
   "live_direct": {
