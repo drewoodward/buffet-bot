@@ -72,10 +72,16 @@ are the design, not an oversight:
   app.** `get_account_list()` returns a real `account_id` (a long opaque
   string) alongside the familiar `account_number` (e.g. "5MS75613") — every
   other Webull call wants the former. `WEBULL_ACCOUNT_ID` was set to the
-  account_number once, on 23 Sep 2026, and every call failed with `403
-  ACCOUNT_ACCESS_DENIED` — a different error than a bad key/secret (401),
-  which is the tell if this happens again. Fix: call `get_account_list()`
-  once and use its `account_id`, not the number on the account statement.
+  account_number twice on 23 Sep 2026 -- once for production, then again
+  independently for sandbox once that got its own credentials -- and both
+  times every call failed with `403 ACCOUNT_ACCESS_DENIED`, a different
+  error than a bad key/secret (401), which is the tell if this happens
+  again. This is a mistake worth expecting to make again in any *new*
+  environment, not something that's "fixed" once: fix is to call
+  `get_account_list()` once per environment and use its `account_id`, not
+  the number on the account statement. `get_account_list()` also lists
+  every account tied to the app key (Margin, Cash, Futures, Crypto, ...) --
+  the Individual Margin one is the one this project trades on.
 
 ## Where things are on millie
 
@@ -152,35 +158,53 @@ Not done:
   in Claude Desktop's own scheduled-tasks UI. Don't mark this done until
   confirmed, and don't assume it's done just because millie is running --
   the two hosts could otherwise both be running cycles unnoticed.
-- **`live_direct` — built 23 Sep 2026. Reads confirmed against the real
-  account; nothing that can place a trade has been tested at all.**
+- **`live_direct` — built 23 Sep 2026, sandbox fully working, production
+  reads confirmed, production writes still untested.**
   `~/mcp/webull-mcp/webull_mcp.py`, on the official
   `webull-openapi-python-sdk` (not the unofficial scraping package -- that
   distinction matters, see DATA-SOURCES.md). Five tools: `place_order`,
   `cancel_order`, `get_order_status`, `get_account`, `get_positions`.
   `lib/kb.py` gained `log-order`/`resolve-order` to actually write the
   `OrderRecord`s execution-agent.md already said every order becomes.
-  - **Sandbox does not authenticate with Andre's real app key/secret** --
-    `api.sandbox.webull.com` returns 401 with the same credentials that work
-    fine against `api.webull.com`, despite Webull's own getting-started docs
-    showing the identical credentials used for both. Root cause not found;
-    the plan of testing everything against sandbox before production
-    couldn't happen as designed. If sandbox ever needs revisiting, this is
-    where to pick it back up -- don't assume it's a credentials typo, that
-    was already ruled out.
-  - **`get_account()` and `get_positions()` were instead verified read-only
-    against the real funded account** (23 Sep 2026): `get_account()`'s field
-    mapping is now confirmed correct (net liq $271.48, matches the exact
-    figure CLAUDE.md's `day_trades_left` bug story already referenced --
-    this is the same account). `get_positions()` correctly returned `[]` --
-    call confirmed working, but its per-position field mapping is still
-    unverified since there were no real positions to check it against. Verify
-    that mapping against a real position the first time one exists.
-  - **`place_order`, `cancel_order`, `get_order_status` are completely
-    unexercised** -- never called against sandbox (couldn't) or production
-    (deliberately not risked). The very first call to `place_order` should
-    be Andre, attended, one small deliberate order, watching it happen --
-    not a strategy-driven proposal finding out these are untested.
+  - **Sandbox needs its own, separately-issued app key/secret/account_id --
+    it does NOT share credentials with production**, despite Webull's own
+    getting-started docs implying otherwise by reusing the same placeholder
+    names in both examples. Andre generated dedicated sandbox credentials and
+    it authenticates cleanly. Both sets live in `.env`; the production ones
+    are commented out rather than deleted, so switching back is a one-line
+    change plus flipping `WEBULL_ENV`.
+  - **`get_account()`, `place_order`, `cancel_order`, `get_order_status` are
+    all confirmed working end-to-end against sandbox** (23 Sep 2026): placed
+    a real sandbox order, read its status (`SUBMITTED`), cancelled it, and
+    confirmed the cancellation landed (`CANCELLED`). `get_account()`'s field
+    mapping (buying power lives nested in `account_currency_assets[N]`, not
+    top-level) was confirmed against both sandbox ($1M/$4M test balances) and
+    production ($271.48 -- the same figure the `day_trades_left` bug story
+    below already referenced). `place_order` also surfaced a real broker-side
+    check worth knowing about: an order priced too far from market comes back
+    `417 OPENAPI_ORDER_RISK_RULE_PRICE_AGGRESSIVE`, which `_call()` (see
+    below) turns into a clean `ToolError` rather than a crash.
+  - **`get_positions()`'s per-position field mapping is still unverified.**
+    The call itself works (empty list, no error, in both sandbox and
+    production), but no order actually filled in testing -- sandbox orders at
+    two different reasonable prices both sat `SUBMITTED` rather than matching,
+    so this remains a real gap. Verify it against a real position the first
+    time one exists, the same way `get_account()`'s mapping just got confirmed.
+  - **Bug fixed while testing:** `_unwrap` (now `_call`) originally only
+    handled the "SDK returns a Response with a bad status code" error path.
+    `place_order`'s risk-rule rejection instead raises
+    `ServerException`/`ClientException` directly from inside the SDK call --
+    uncaught, that's not just a failed tool call on an MCP stdio server, it
+    can take the whole server process down. `_call()` now wraps the SDK
+    invocation itself, not just its result, and catches both paths into one
+    clean `ToolError`.
+  - **Never tested against production: `place_order`, `cancel_order`,
+    `get_order_status`.** Deliberately not risked once sandbox started
+    working properly -- there was no need to. The very first call to
+    `place_order` against the *real* funded account should still be Andre,
+    attended, one small deliberate order, watching it happen -- not a
+    strategy-driven proposal finding out production behaves differently from
+    sandbox.
 - **Schwab MCP server** — still not connected. Unlike Webull, this really is
   a local server Andre is standing up; see DATA-SOURCES.md.
 - **The dashboard.** Built and installed 22 Sep 2026 as an OpenClaw feature
