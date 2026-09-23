@@ -15,6 +15,16 @@
     "schwab": {
       "command": "python3",
       "args": ["/home/millie/mcp/schwab-mcp/server.py"]
+    },
+    "webull": {
+      "command": "/home/millie/mcp/webull-mcp/venv/bin/python3",
+      "args": ["/home/millie/mcp/webull-mcp/webull_mcp.py"],
+      "env": {
+        "WEBULL_APP_KEY": "${WEBULL_APP_KEY}",
+        "WEBULL_APP_SECRET": "${WEBULL_APP_SECRET}",
+        "WEBULL_ACCOUNT_ID": "${WEBULL_ACCOUNT_ID}",
+        "WEBULL_ENV": "${WEBULL_ENV}"
+      }
     }
   }
 }

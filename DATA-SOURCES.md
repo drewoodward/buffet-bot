@@ -41,10 +41,14 @@ matters once `config.json -> execution_mode` leaves `paper`. See
 `.claude/agents/execution-agent.md` for the three broker implementations:
 `paper` calls no broker at all; `live_instruction` uses this same
 `mcp__claude_ai_Webull__*` connector's `place_stock_instruction` (creates a
-confirmation link, does not execute); `live_direct` is a genuinely separate,
-not-yet-built local MCP server on Webull's Open API, gated on a funded account
-and an API key. Don't conflate the two -- a working connector for reads and
-`live_instruction` says nothing about whether `live_direct` exists yet.
+confirmation link, does not execute); `live_direct` is a genuinely separate
+local MCP server on Webull's Open API (`~/mcp/webull-mcp/`, built on the
+official `webull-openapi-python-sdk`, not the unofficial scraping-oriented
+`webull` package -- the two have completely different, non-interchangeable
+auth models). Don't conflate the three -- a working connector for reads and
+`live_instruction` says nothing about `live_direct`'s own state, and
+`live_direct` existing says nothing about whether it's been pointed at
+production yet (`WEBULL_ENV` defaults to `sandbox`; see CLAUDE.md).
 
 **Second Alpha Report inbox** -> Google Drive, folder "Alpha Reports — trading
 agent inbox" (id `1e0hVEcc4TUv95SXd2uqldLbNjELbnqWW`), via

@@ -144,22 +144,35 @@ Not done:
   in Claude Desktop's own scheduled-tasks UI. Don't mark this done until
   confirmed, and don't assume it's done just because millie is running --
   the two hosts could otherwise both be running cycles unnoticed.
-- **`live_direct` — the actual Webull Open API server.** This is the one
-  genuinely-local, not-yet-built piece: real order placement, distinct from
-  the `claude.ai` connector above. Blocked on Andre's account being funded
-  (Tuesday 22 Sep) and an Open API key. `execution-agent.md` already has
-  `mcp__webull__*` reserved for it in its tool allowlist; don't add that
-  prefix to any *standing* allow anywhere else when it lands — CLAUDE.md's
-  execution-safety section below explains why.
+- **`live_direct` — built 23 Sep 2026, sandbox-verified, production not yet
+  used.** `~/mcp/webull-mcp/webull_mcp.py`, on the official
+  `webull-openapi-python-sdk` (not the unofficial scraping package -- that
+  distinction matters, see DATA-SOURCES.md). Five tools: `place_order`,
+  `cancel_order`, `get_order_status`, `get_account`, `get_positions`.
+  `lib/kb.py` gained `log-order`/`resolve-order` to actually write the
+  `OrderRecord`s execution-agent.md already said every order becomes.
+  `get_account()`/`get_positions()` have a real, documented gap: Webull's
+  exact response field names for balance/positions weren't confirmable from
+  public docs (only request-building is documented upstream), so both raise
+  a clear error listing the real keys seen if their best-guess field names
+  don't match, rather than silently feeding wrong numbers into
+  `lib/risk.py`. **Confirm the real field names against one sandbox response
+  before this is trusted, and confirm `WEBULL_ENV=production` with real
+  credentials before it ever touches the funded account** -- `WEBULL_ENV`
+  defaults to `sandbox` on purpose. See "Execution safety" below for how
+  `mcp__webull__*` is scoped.
 - **Schwab MCP server** — still not connected. Unlike Webull, this really is
   a local server Andre is standing up; see DATA-SOURCES.md.
-- **The dashboard.** The Cowork artifact is still a Cowork artifact written
-  with tools Claude Code may not have, and still unverified. What is now in
-  place is a second, local surface that does not depend on it: cycles publish
-  the same report document to `/srv/buffet-bot` via `lib/publish.py`, and the
-  OpenClaw dashboard reads it from there. Telegram works regardless of both.
-  Still to do: point the OpenClaw dashboard at `latest.json` and render it —
-  nothing consumes the published files yet.
+- **The dashboard.** Built and installed 22 Sep 2026 as an OpenClaw feature
+  plugin (`/home/openclaw/plugins/buffet-dashboard/`) — a native Control UI
+  page, not a dashboard widget (the widget sandbox's CSP blocks remote images
+  and caps payloads too small for a growing report history). Reads
+  `/srv/buffet-bot` directly; no tool: bindings, so it's UI-only and never
+  reachable by the OpenClaw assistant itself. Reachable from Andre's phone
+  over Tailscale (`https://millie.barreleye-city.ts.net/`), and the
+  Cowork artifact still updates every cycle as a no-tailnet-required
+  fallback. The Cowork artifact itself remains unverified as its own
+  surface, independent of this.
 
 ## Execution safety
 
@@ -167,13 +180,18 @@ Not done:
 `live_instruction` there is no tool that can place an order — the human in the
 loop is a property of the toolset.
 
-`live_direct` (the Webull Open API server, not yet built) changes that to a
-config value. It carries two gates, both defaulting to on:
+`live_direct` (the local Webull Open API server, built 23 Sep 2026) changes
+that to a config value. It carries two gates, both defaulting to on:
 `require_confirmation_link` and `require_attended_session`. Turning either off
 is a deliberate decision by Andre, never a convenience.
 
-Do not add `mcp__webull__*` to a standing allow in `.claude/settings.json`.
-The cycles get it scoped per-run in `run-cycle.sh`; that is where it belongs.
+`mcp__webull__*` is never granted in `run-cycle.sh` — the three scheduled
+cycles literally have no tool that can place a live order, matching how
+`paper`/`live_instruction` already can't. It is granted in exactly one place,
+`run-attended.sh`, which no systemd unit references; running it by hand *is*
+what "attended" means. Do not add `mcp__webull__*` anywhere else, standing
+allow or otherwise — that would turn "can't" back into "won't," which is the
+one thing this whole design exists to avoid.
 
 ## How Andre wants to be talked to
 

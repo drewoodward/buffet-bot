@@ -362,6 +362,65 @@ def cmd_log_decision(args):
     print(json.dumps({"ok": True, "id": cur.lastrowid}))
 
 
+def cmd_log_order(args):
+    """Record a proposal at submit time -- step one of the OrderRecord
+    lifecycle execution-agent.md describes. resolve-order (below) closes it
+    out once a fill, rejection or cancellation lands."""
+    p = json.loads(args.json)
+    conn = connect()
+    cur = conn.execute(
+        "INSERT INTO orders(mode,ticker,side,quantity,order_type,limit_price,time_in_force,"
+        "instrument,entry_zone,stop_price,target_price,max_loss_dollars,rationale,proposal_id,"
+        "status,reject_reason,broker_ref,submitted_at,created_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (p["mode"], p["ticker"], p["side"], _f(p.get("quantity")), p.get("order_type"),
+         _f(p.get("limit_price")), p.get("time_in_force"), p.get("instrument"),
+         p.get("entry_zone"), _f(p.get("stop_price")),
+         json.dumps(p.get("targets")) if p.get("targets") is not None else None,
+         _f(p.get("max_loss_dollars")), p.get("rationale"), p.get("proposal_id"),
+         p["status"], p.get("reject_reason"), p.get("broker_ref"),
+         p.get("submitted_at") or now(), now()),
+    )
+    conn.commit()
+    print(json.dumps({"ok": True, "id": cur.lastrowid}))
+
+
+def cmd_resolve_order(args):
+    """Close out an order log-order opened: a fill, rejection or cancellation
+    landed. Matches by proposal_id (preferred) or broker_ref -- whichever the
+    caller has on hand. is_day_trade is taken as given, not computed here:
+    execution-agent decides whether the position opened the same day: this
+    command's job is to record that decision, not make it."""
+    p = json.loads(args.json)
+    conn = connect()
+    where_col, where_val = (("proposal_id", p["proposal_id"]) if p.get("proposal_id")
+                             else ("broker_ref", p.get("broker_ref")))
+    if not where_val:
+        print(json.dumps({"ok": False, "error": "resolve-order needs proposal_id or broker_ref"}))
+        sys.exit(2)
+
+    resolved_at = now()
+    cur = conn.execute(
+        f"UPDATE orders SET status=?, reject_reason=?, broker_ref=COALESCE(?, broker_ref),"
+        f" fill_price=?, resolved_at=?, is_day_trade=? WHERE {where_col}=?",
+        (p["status"], p.get("reject_reason"), p.get("broker_ref"), _f(p.get("fill_price")),
+         resolved_at, 1 if p.get("is_day_trade") else 0, where_val),
+    )
+    if cur.rowcount == 0:
+        conn.rollback()
+        print(json.dumps({"ok": False, "error": f"no order row found for {where_col}={where_val}"}))
+        sys.exit(2)
+
+    if p.get("is_day_trade"):
+        row = conn.execute(f"SELECT id, ticker FROM orders WHERE {where_col}=?", (where_val,)).fetchone()
+        conn.execute(
+            "INSERT INTO day_trades(ticker,trade_date,order_id,created_at) VALUES(?,?,?,?)",
+            (row["ticker"], resolved_at[:10], row["id"], resolved_at),
+        )
+    conn.commit()
+    print(json.dumps({"ok": True, where_col: where_val, "status": p["status"]}))
+
+
 def cmd_cycle_open(args):
     """Step 1 of a cycle: the row every other write this cycle hangs off of."""
     p = json.loads(args.json)
@@ -455,7 +514,8 @@ def main():
     for name, fn in [("sync-positions", cmd_sync_positions), ("set-thesis", cmd_set_thesis),
                      ("add-event", cmd_add_event), ("log-decision", cmd_log_decision),
                      ("source-status", cmd_source_status), ("cycle-open", cmd_cycle_open),
-                     ("cycle-close", cmd_cycle_close)]:
+                     ("cycle-close", cmd_cycle_close), ("log-order", cmd_log_order),
+                     ("resolve-order", cmd_resolve_order)]:
         p = sub.add_parser(name)
         p.add_argument("--json", required=True)
         p.set_defaults(func=fn)
