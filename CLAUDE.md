@@ -68,6 +68,14 @@ are the design, not an oversight:
   TradingView layout — 715 "THE PIVOT", 702.70 "THE FLOOR", and others. There
   is no undo through this interface. Draw in your own tab, or remove only the
   ids you created.
+- **Webull's Open API `account_id` is not the account number shown in the
+  app.** `get_account_list()` returns a real `account_id` (a long opaque
+  string) alongside the familiar `account_number` (e.g. "5MS75613") — every
+  other Webull call wants the former. `WEBULL_ACCOUNT_ID` was set to the
+  account_number once, on 23 Sep 2026, and every call failed with `403
+  ACCOUNT_ACCESS_DENIED` — a different error than a bad key/secret (401),
+  which is the tell if this happens again. Fix: call `get_account_list()`
+  once and use its `account_id`, not the number on the account statement.
 
 ## Where things are on millie
 
@@ -144,23 +152,35 @@ Not done:
   in Claude Desktop's own scheduled-tasks UI. Don't mark this done until
   confirmed, and don't assume it's done just because millie is running --
   the two hosts could otherwise both be running cycles unnoticed.
-- **`live_direct` — built 23 Sep 2026, sandbox-verified, production not yet
-  used.** `~/mcp/webull-mcp/webull_mcp.py`, on the official
+- **`live_direct` — built 23 Sep 2026. Reads confirmed against the real
+  account; nothing that can place a trade has been tested at all.**
+  `~/mcp/webull-mcp/webull_mcp.py`, on the official
   `webull-openapi-python-sdk` (not the unofficial scraping package -- that
   distinction matters, see DATA-SOURCES.md). Five tools: `place_order`,
   `cancel_order`, `get_order_status`, `get_account`, `get_positions`.
   `lib/kb.py` gained `log-order`/`resolve-order` to actually write the
   `OrderRecord`s execution-agent.md already said every order becomes.
-  `get_account()`/`get_positions()` have a real, documented gap: Webull's
-  exact response field names for balance/positions weren't confirmable from
-  public docs (only request-building is documented upstream), so both raise
-  a clear error listing the real keys seen if their best-guess field names
-  don't match, rather than silently feeding wrong numbers into
-  `lib/risk.py`. **Confirm the real field names against one sandbox response
-  before this is trusted, and confirm `WEBULL_ENV=production` with real
-  credentials before it ever touches the funded account** -- `WEBULL_ENV`
-  defaults to `sandbox` on purpose. See "Execution safety" below for how
-  `mcp__webull__*` is scoped.
+  - **Sandbox does not authenticate with Andre's real app key/secret** --
+    `api.sandbox.webull.com` returns 401 with the same credentials that work
+    fine against `api.webull.com`, despite Webull's own getting-started docs
+    showing the identical credentials used for both. Root cause not found;
+    the plan of testing everything against sandbox before production
+    couldn't happen as designed. If sandbox ever needs revisiting, this is
+    where to pick it back up -- don't assume it's a credentials typo, that
+    was already ruled out.
+  - **`get_account()` and `get_positions()` were instead verified read-only
+    against the real funded account** (23 Sep 2026): `get_account()`'s field
+    mapping is now confirmed correct (net liq $271.48, matches the exact
+    figure CLAUDE.md's `day_trades_left` bug story already referenced --
+    this is the same account). `get_positions()` correctly returned `[]` --
+    call confirmed working, but its per-position field mapping is still
+    unverified since there were no real positions to check it against. Verify
+    that mapping against a real position the first time one exists.
+  - **`place_order`, `cancel_order`, `get_order_status` are completely
+    unexercised** -- never called against sandbox (couldn't) or production
+    (deliberately not risked). The very first call to `place_order` should
+    be Andre, attended, one small deliberate order, watching it happen --
+    not a strategy-driven proposal finding out these are untested.
 - **Schwab MCP server** — still not connected. Unlike Webull, this really is
   a local server Andre is standing up; see DATA-SOURCES.md.
 - **The dashboard.** Built and installed 22 Sep 2026 as an OpenClaw feature
