@@ -7,6 +7,7 @@
     systemctl --user enable --now tradingview-cdp.service
     systemctl --user enable --now buffet-bot-premarket.timer
     systemctl --user enable --now buffet-bot-alpha.timer
+    systemctl --user enable --now buffet-bot-intraday.timer
     systemctl --user enable --now buffet-bot-postclose.timer
 
     # Without this, user services die when you log out. A headless mini PC is

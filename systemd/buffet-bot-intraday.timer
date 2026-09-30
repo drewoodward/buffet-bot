@@ -1,0 +1,10 @@
+[Unit]
+Description=buffet bot — intraday trading cycle, 10:00am Eastern, weekdays
+
+[Timer]
+OnCalendar=Mon-Fri 10:00:00 America/New_York
+Persistent=false
+Unit=buffet-bot@intraday.service
+
+[Install]
+WantedBy=timers.target

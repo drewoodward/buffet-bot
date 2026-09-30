@@ -26,7 +26,9 @@ are the design, not an oversight:
   its own to protect when reconciling a contradiction.
 - **execution-agent** has no discretion over risk. It calls `lib/risk.py` and
   reports the verdict.
-- **Only the orchestrator talks to Telegram.** No subagent has it.
+- **Only the orchestrator talks to Telegram.** No subagent has it. (The
+  exception is `lib/trail.py`, which is a plain script, not an agent: it
+  messages when it moves a stop or sells.)
 
 ## Bugs already found and fixed. Do not reintroduce them.
 
@@ -205,6 +207,69 @@ Not done:
     attended, one small deliberate order, watching it happen -- not a
     strategy-driven proposal finding out production behaves differently from
     sandbox.
+- **Stops, trailing stops, options, fractional shares — built 29 Sep 2026,
+  sandbox-read-tested only.** The broker code moved into
+  `~/mcp/webull-mcp/webull_broker.py`, shared by the MCP server (tools now:
+  `buy_stock`, `sell_stock`, `buy_option`, `sell_option`,
+  `find_option_contracts`, `get_option_quote`, `cancel_order`,
+  `get_order_status`, `get_open_orders`, `get_account`, `get_positions`) and
+  by `lib/trail.py`, the stop watcher (`systemd/buffet-bot-watch.*`, every 5
+  min in market hours; NOT yet installed — Andre enables it). Webull rules
+  that shaped it, from developer.webull.com: fractional = MARKET only and
+  under 1 share, so no broker-side stop is possible on a fractional position
+  and trail.py sells those itself; options = LIMIT/stop orders only, sell
+  side DAY only, no trailing type, so trail.py re-places option stops daily
+  and trails by cancel-and-replace; stock trailing type is DAY only, so
+  trail.py trails a GTC stop with `replace_order` instead. Entries attach the
+  stop as a MASTER + STOP_LOSS combo. trail.py only ever sells, and only acts
+  in `live_direct`. Its logic was tested against a fake broker (fills, trail
+  to breakeven, lapsed stop re-placed, fractional stop-out, option trail,
+  expiry-day close, unfilled-exit re-price); **no order through the new code
+  has reached even sandbox yet** — sandbox refuses orders outside market
+  hours (`OPENAPI_CAN_NOT_TRADING_FOR_FIXGW_NOT_READY`). Test there first,
+  in market hours. Production market data (stock AND option quotes) returns
+  `403 MARKET_DATA_NOT_SUBSCRIBED` — option contract lists work, prices
+  don't, until Andre subscribes. Held positions' `last_price` comes from the
+  positions endpoint, which needs no subscription (field name from Webull's
+  own MCP server; unconfirmed on this account).
+  - **Sandbox order test, 30 Sep 2026 (GO-LIVE-PLAN step A), in market
+    hours: passed.** Run late (15:18–15:30 ET, not 09:35) and after the 10:00
+    cycle, as the plan allows.
+    - Whole-share buy + attached stop (`buy_stock('QQQ', 1, 743.55,
+      stop_price=728.63)`): Webull accepted the combo. The buy filled at once,
+      and the GTC STOP_LOSS leg showed SUBMITTED. `open_orders()` entries do
+      carry `client_order_id` at the top level. The list is combos, each with
+      a nested `orders[]`, and a **filled MASTER stays in the list while its
+      stop leg is still working**. trail.py only checks membership, so that's
+      harmless.
+    - `move_stock_stop` after the fill worked (728.63 → 730.00) via
+      `replace_order`. It was not tried before the fill, because the buy
+      filled instantly.
+    - `positions()` field names confirmed for stock (`symbol`, `quantity`,
+      `last_price`, `cost_price`, `instrument_type`) **and for options** (a
+      single `legs[]` entry with `option_type`, `option_expire_date`,
+      `option_exercise_price`; no `strike_price`, so the fallback is what
+      gets used). No code change needed.
+    - Fractional: 0.02 QQQ market buy filled (~$14.87), market sell filled.
+    - Option: `option_contracts` + `option_quote` work on sandbox, but
+      **sandbox option quotes are 15 minutes delayed** (`delay_minutes: 15`).
+      A limit at that stale ask sat unfilled. Cancelling the MASTER
+      also cancelled its STOP_LOSS leg. Re-sent at 1.80 limit, it filled at
+      1.30, and its DAY stop leg went live.
+    - trail.py `--dry-run --force-hours` against a copy of kb.sqlite with a
+      `stop-open` row for that option: flipped it to active, and with
+      `high_water` set to 1.95 it planned "cancel stop, trail 0.9 → 1.46".
+    - **Bug found and fixed:** a sell placed straight after cancelling the
+      stop covering the same shares is refused with
+      `OPENAPI_ORDER_NOT_SUPPORT_REVERSE_OPTION` ("would reverse an existing
+      position"), because the cancel hasn't settled yet. That hit trail.py's
+      `exit_now` (expiry-day close) and its option trail (cancel → re-place,
+      which would have left the option with no stop until the next run).
+      `Broker.cancel()` now waits (up to 10 s) until Webull reports the order
+      CANCELLED/FILLED/etc. before it returns. Re-tested on sandbox: cancel
+      settled in about 1 s, then re-placing the option stop and the exit sell
+      both went through straight away.
+    - Ended flat: no positions, no open orders.
 - **Schwab MCP server** — still not connected. Unlike Webull, this really is
   a local server Andre is standing up; see DATA-SOURCES.md.
 - **The dashboard.** Built and installed 22 Sep 2026 as an OpenClaw feature
@@ -220,7 +285,23 @@ Not done:
 
 ## Execution safety
 
-`config.json -> execution_mode` is `paper`. Under `paper` and
+**Current state (30 Sep 2026): fully autonomous live trading.** Andre chose
+this on 29 Sep 2026 (GO-LIVE-PLAN.md) and it was applied on 30 Sep, after the
+sandbox test and a production order that didn't fill (1 F @ 11.65 limit,
+placed then cancelled) both passed. `execution_mode` is `live_direct`, and
+`require_confirmation_link` and `require_attended_session` are both `false`.
+`run-cycle.sh` grants `mcp__webull__*`, so every scheduled cycle can place
+real orders with no human confirmation. The stop watcher
+(`buffet-bot-watch.timer`) is installed and running. What stands between a
+cycle and a real order now is `lib/risk.py` (per-trade/per-ticker caps, daily
+loss halt, PDT) and the stop on every entry. Keep both intact. To go back to
+gated trading, reverse those four changes. Production quirk: Webull answered
+0.5 s status polling with 429 TOO_MANY_REQUESTS, so keep API calls spaced out.
+
+The text below is the gated design as it stood before 30 Sep, kept as
+history.
+
+`config.json -> execution_mode` was `paper`. Under `paper` and
 `live_instruction` there is no tool that can place an order — the human in the
 loop is a property of the toolset.
 

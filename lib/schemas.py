@@ -56,7 +56,7 @@ SCHEMAS = {
         "side":              ("str",   True,  ["BUY", "SELL"]),
         "instrument":        ("str",   True,  ["EQUITY", "OPTION"]),
         "quantity":          ("float", True,  None),
-        "order_type":        ("str",   True,  ["LIMIT"]),
+        "order_type":        ("str",   True,  ["LIMIT", "MARKET"]),  # MARKET: fractional shares only
         "limit_price":       ("float", True,  None),
         "stop_price":        ("float", True,  None),
         "targets":           ("list",  True,  None),
@@ -65,12 +65,16 @@ SCHEMAS = {
         "sources":           ("list",  True,  None),   # which agents contributed
         "is_averaging_down": ("bool",  True,  None),
         "averaging_rationale": ("str", False, None),
+        # OPTION only. limit_price/stop_price are then per-share premium.
+        "option_type":       ("str",   False, ["CALL", "PUT"]),
+        "strike":            ("float", False, None),
+        "expiry":            ("str",   False, None),   # YYYY-MM-DD
     },
     # Execution Agent -> Knowledge Base Agent
     "OrderRecord": {
         "proposal_id":  ("str",   True,  None),
         "mode":         ("str",   True,  ["paper", "live"]),
-        "status":       ("str",   True,  ["proposed", "rejected", "awaiting_confirm",
+        "status":       ("str",   True,  ["proposed", "submitted", "rejected", "awaiting_confirm",
                                           "filled", "cancelled", "expired"]),
         "ticker":       ("str",   True,  None),
         "reject_reason": ("str",  False, None),
@@ -140,6 +144,22 @@ def validate(name, payload):
             errors.append("averaging down requires an explicit averaging_rationale")
         if payload["side"] == "BUY" and payload["stop_price"] >= payload["limit_price"]:
             errors.append("a buy proposal's stop must sit below the limit price")
+        q = payload["quantity"]
+        if payload["instrument"] == "OPTION":
+            for f in ("option_type", "strike", "expiry"):
+                if payload.get(f) is None:
+                    errors.append(f"an OPTION proposal needs {f}")
+            if q != int(q):
+                errors.append("options trade in whole contracts")
+            if payload["order_type"] != "LIMIT":
+                errors.append("Webull takes no MARKET orders on options")
+        elif q != int(q):
+            if q > 1:
+                errors.append("Webull fractional orders must be under 1 share -- use whole shares above 1")
+            if payload["order_type"] != "MARKET":
+                errors.append("Webull fills fractional shares with MARKET orders only; keep limit_price as the reference price")
+        elif payload["order_type"] == "MARKET":
+            errors.append("MARKET is for fractional orders only; whole shares go in as LIMIT")
 
     return (len(errors) == 0), errors
 

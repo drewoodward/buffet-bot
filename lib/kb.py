@@ -211,6 +211,36 @@ CREATE TABLE IF NOT EXISTS day_trades (
   created_at TEXT NOT NULL
 );
 
+-- One row per open position the stop watcher (lib/trail.py) manages. The
+-- execution agent opens it when an entry is placed; trail.py moves the stop
+-- up, re-places expired stops, and closes the row when the position is gone.
+-- `key` matches Webull positions: ticker for stock, UNDERLYING:TYPE:STRIKE:EXPIRY
+-- for an option.
+CREATE TABLE IF NOT EXISTS stops (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  key TEXT NOT NULL,
+  ticker TEXT NOT NULL,
+  instrument TEXT NOT NULL,
+  option_type TEXT,
+  strike REAL,
+  expiry TEXT,
+  quantity REAL NOT NULL,
+  entry_price REAL NOT NULL,
+  initial_stop REAL NOT NULL,
+  current_stop REAL NOT NULL,
+  high_water REAL,
+  fractional INTEGER NOT NULL DEFAULT 0,
+  entry_ref TEXT,
+  stop_ref TEXT,
+  proposal_id TEXT,
+  status TEXT NOT NULL,
+  note TEXT,
+  opened_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  closed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_stops_status ON stops(status);
+
 CREATE TABLE IF NOT EXISTS cycles (
   cycle_id TEXT PRIMARY KEY,
   phase TEXT NOT NULL,
@@ -421,6 +451,33 @@ def cmd_resolve_order(args):
     print(json.dumps({"ok": True, where_col: where_val, "status": p["status"]}))
 
 
+def cmd_stop_open(args):
+    """Hand a new position to the stop watcher. Called by the execution agent
+    right after an entry is placed -- before it fills, so a fill between
+    cycles is still covered. Status starts 'pending_fill'; trail.py flips it
+    to 'active' once Webull shows the position."""
+    p = json.loads(args.json)
+    conn = connect()
+    conn.executescript(SCHEMA)
+    instrument = p.get("instrument", "EQUITY").upper()
+    if instrument == "OPTION":
+        key = f"{p['ticker'].upper()}:{p['option_type'].upper()}:{float(p['strike']):g}:{p['expiry']}"
+    else:
+        key = p["ticker"].upper()
+    ts = now()
+    cur = conn.execute(
+        "INSERT INTO stops(key,ticker,instrument,option_type,strike,expiry,quantity,entry_price,initial_stop,"
+        "current_stop,high_water,fractional,entry_ref,stop_ref,proposal_id,status,opened_at,updated_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (key, p["ticker"].upper(), instrument, (p.get("option_type") or "").upper() or None, _f(p.get("strike")),
+         p.get("expiry"), float(p["quantity"]), float(p["entry_price"]), float(p["stop_price"]),
+         float(p["stop_price"]), float(p["entry_price"]), 1 if p.get("fractional") else 0,
+         p.get("entry_ref"), p.get("stop_ref"), p.get("proposal_id"), "pending_fill", ts, ts),
+    )
+    conn.commit()
+    print(json.dumps({"ok": True, "id": cur.lastrowid, "key": key}))
+
+
 def cmd_cycle_open(args):
     """Step 1 of a cycle: the row every other write this cycle hangs off of."""
     p = json.loads(args.json)
@@ -477,7 +534,7 @@ def cmd_fingerprint(args):
     conn = connect()
     counts = {}
     for t in ("positions", "thesis_versions", "events", "levels", "catalysts",
-              "alpha_reports", "alpha_calls", "orders", "decisions", "day_trades", "cycles"):
+              "alpha_reports", "alpha_calls", "orders", "decisions", "day_trades", "cycles", "stops"):
         counts[t] = conn.execute(f"SELECT COUNT(*) c FROM {t}").fetchone()["c"]
     integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
     stale_cycles = [dict(r) for r in conn.execute(
@@ -515,7 +572,7 @@ def main():
                      ("add-event", cmd_add_event), ("log-decision", cmd_log_decision),
                      ("source-status", cmd_source_status), ("cycle-open", cmd_cycle_open),
                      ("cycle-close", cmd_cycle_close), ("log-order", cmd_log_order),
-                     ("resolve-order", cmd_resolve_order)]:
+                     ("resolve-order", cmd_resolve_order), ("stop-open", cmd_stop_open)]:
         p = sub.add_parser(name)
         p.add_argument("--json", required=True)
         p.set_defaults(func=fn)

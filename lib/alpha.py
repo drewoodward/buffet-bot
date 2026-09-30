@@ -145,7 +145,7 @@ def cmd_score(args):
         # telling you to stay out of something that then rallied is a miss, not
         # a win, and scoring it as a win would flatter the track record exactly
         # where it matters most.
-        if direction in ("short", "close"):
+        if direction in ("short", "close", "avoid"):
             pct = round(-move, 2)
         elif direction == "long":
             pct = round(move, 2)

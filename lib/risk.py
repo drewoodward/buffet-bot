@@ -15,6 +15,7 @@ import os
 import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -163,10 +164,27 @@ def evaluate(proposal, account):
         + (" -- halted, new entries blocked (exits still allowed)" if halted else ""),
         day_pl=day_pl, halt_threshold=round(halt_at, 2)))
 
-    # 5. Buying power.
+    # 5. Buying power. Options draw on Webull's separate option buying power
+    # when the account payload carries it.
+    if proposal["instrument"] == "OPTION" and account.get("option_buying_power") is not None:
+        bp = float(account["option_buying_power"])
     checks.append(_check(
         "buying_power", (not is_entry) or n <= bp,
         f"${n:,.2f} required against ${bp:,.2f} available", required=n, available=bp))
+
+    # 5b. Instrument rules Webull enforces anyway -- caught here so the
+    # rejection names the rule instead of arriving as a broker error.
+    if proposal["instrument"] == "OPTION":
+        today = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+        exp = str(proposal.get("expiry") or "")
+        checks.append(_check(
+            "option_expiry", exp >= today,
+            f"expiry {exp or '(missing)'} against today {today}"
+            + (" -- same-day expiry; lib/trail.py sells it by 15:40 ET" if exp == today else "")))
+    elif proposal["quantity"] != int(proposal["quantity"]):
+        checks.append(_check(
+            "fractional_minimum", n >= 5.0,
+            f"fractional order ${n:,.2f} against Webull's $5 minimum", notional=n))
 
     # 6. Pattern day trader rule.
     dt_count = count_recent_day_trades(conn)

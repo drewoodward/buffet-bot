@@ -2,23 +2,35 @@
   "mcpServers": {
     "tradingview": {
       "command": "node",
-      "args": ["/home/millie/mcp/tradingview-mcp/src/server.js"]
+      "args": [
+        "/home/millie/mcp/tradingview-mcp/src/server.js"
+      ]
     },
     "telegram": {
       "command": "python3",
-      "args": ["/home/millie/mcp/telegram-mcp/telegram_mcp.py"],
+      "args": [
+        "/home/millie/mcp/telegram-mcp/telegram_mcp.py"
+      ],
       "env": {
         "TELEGRAM_BOT_TOKEN": "${TELEGRAM_BOT_TOKEN}",
         "TELEGRAM_CHAT_ID": "${TELEGRAM_CHAT_ID}"
       }
     },
     "schwab": {
-      "command": "python3",
-      "args": ["/home/millie/mcp/schwab-mcp/server.py"]
+      "command": "/home/millie/mcp/schwab-mcp/venv/bin/python3",
+      "args": [
+        "/home/millie/mcp/schwab-mcp/server.py"
+      ],
+      "env": {
+        "SCHWAB_APP_KEY": "${SCHWAB_APP_KEY}",
+        "SCHWAB_APP_SECRET": "${SCHWAB_APP_SECRET}"
+      }
     },
     "webull": {
       "command": "/home/millie/mcp/webull-mcp/venv/bin/python3",
-      "args": ["/home/millie/mcp/webull-mcp/webull_mcp.py"],
+      "args": [
+        "/home/millie/mcp/webull-mcp/webull_mcp.py"
+      ],
       "env": {
         "WEBULL_APP_KEY": "${WEBULL_APP_KEY}",
         "WEBULL_APP_SECRET": "${WEBULL_APP_SECRET}",

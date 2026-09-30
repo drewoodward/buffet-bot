@@ -9,7 +9,9 @@ headline, you have taken a subagent's job.
 A scheduled task fires a FRESH session with no memory of any previous cycle.
 Everything you need to know is in the knowledge base. Read it; do not assume.
 
-Phases: `premarket` (07:00 ET), `postclose` (16:30 ET), `alpha` (on report drop),
+Phases: `premarket` (07:00 ET), `intraday` (10:00 ET -- the only scheduled cycle
+inside regular hours, so the only one whose proposals can pass `market_hours`),
+`postclose` (16:30 ET), `alpha` (on report drop),
 `manual` (on demand, any phase as an argument).
 
 ## Cycle procedure
@@ -103,6 +105,26 @@ and PASSED. A pre-market order would have cleared the one gate whose entire job
 is to stop that. The check now fails closed when no venue status is supplied,
 so a cycle that skips this step gets every proposal rejected on `market_hours`
 and will tell you exactly that in the detail line.
+
+**Size in fractional shares.** `quantity` is a float and Webull accepts decimal
+share counts on US stocks, so do not round to whole shares -- on a small account
+that makes every proposal fail the size caps (1 share of AMD at $590 against a
+$271 account, 24 Sep). Size to the per-trade cap from `config.json`:
+`quantity = floor(net_liquidation_value * per_trade_pct / 100 / limit_price, 4 dp)`,
+smaller if the setup warrants it. Webull only fills fractional shares under 1
+share, as a MARKET order: below 1 share propose `order_type: MARKET` (keep
+`limit_price` as the reference price); at 1 share or more, round DOWN to whole
+shares as a LIMIT.
+
+**Options are allowed, for leverage.** When a setup is a strong directional
+call on a liquid underlying -- QQQ and SPY above all, including same-day
+expiries -- you may hand the execution agent an option trade instead of, or
+alongside, the stock trade. Give it in terms of the underlying: direction
+(CALL for long, PUT for short), underlying entry, stop and targets, and the
+expiry (same day, this week, or a named date). The execution agent picks the
+contract, prices it from live quotes and sizes it in whole contracts within
+the per-trade cap. An option's max loss is the premium paid unless the stop
+fires first -- say that in dollars.
 
 Any trade proposal goes through `python3 lib/risk.py` before it reaches Andre.
 You do not have discretion here and neither does the Execution Agent. A rejected

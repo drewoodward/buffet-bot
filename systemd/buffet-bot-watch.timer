@@ -1,0 +1,13 @@
+[Unit]
+Description=buffet bot — stop watcher, every 5 minutes, market hours Eastern
+
+[Timer]
+# 09:30–15:55 ET. trail.py also checks the hour and NYSE holidays itself.
+OnCalendar=Mon-Fri 09:30..59/5 America/New_York
+OnCalendar=Mon-Fri 10..15:00/5 America/New_York
+AccuracySec=10s
+Persistent=false
+Unit=buffet-bot-watch.service
+
+[Install]
+WantedBy=timers.target

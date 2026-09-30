@@ -2,7 +2,7 @@
 # buffet bot — run one cycle WITH YOU PRESENT, the only context that ever
 # grants mcp__webull__* (real order placement via live_direct).
 #
-#   ./run-attended.sh premarket | alpha-check | postclose
+#   ./run-attended.sh premarket | intraday | alpha-check | postclose
 #
 # This is a near-copy of run-cycle.sh with exactly one difference: the
 # allowedTools list below. Every scheduled cycle runs through run-cycle.sh,
@@ -19,7 +19,7 @@
 # by itself skip either gate.
 set -euo pipefail
 
-PHASE="${1:?usage: run-attended.sh premarket|alpha-check|postclose}"
+PHASE="${1:?usage: run-attended.sh premarket|intraday|alpha-check|postclose}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
