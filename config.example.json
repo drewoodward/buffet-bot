@@ -11,6 +11,26 @@
     "pdt_max_day_trades": 3,
     "allow_averaging_down": false
   },
+  "accounts": {
+    "margin": {
+      "type": "MARGIN",
+      "label": "Individual Margin 5MS75613",
+      "trading_enabled": true,
+      "risk": {},
+      "_note": "Uses the shared `risk` block above unchanged. Open API account_id is WEBULL_ACCOUNT_ID in .env."
+    },
+    "cash": {
+      "type": "CASH",
+      "label": "Individual Cash CVY4GAV6",
+      "trading_enabled": false,
+      "risk": {
+        "per_trade_pct": 100.0,
+        "per_ticker_pct": 100.0,
+        "daily_loss_halt_pct": 50.0
+      },
+      "_note": "Added 7 Oct 2026. Andre wants this account run riskier than margin, and every cycle trades both. Options once its funds settle and Webull shows option buying power. `risk` overrides the shared block key by key. Cash-account rules in risk.py: entries spend settled cash only (good-faith violations restrict the account); the pattern day trader rule does not apply. trading_enabled is false until Andre confirms these numbers. Open API account_id is WEBULL_ACCOUNT_ID_CASH in .env."
+    }
+  },
   "materiality": {
     "alert_threshold": 8,
     "report_threshold": 5,

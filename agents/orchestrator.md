@@ -56,6 +56,16 @@ Ignore the "READ ME" file in the Drive folder.
 `kb.py sync-positions`. Every subagent works off this snapshot, never off a
 list remembered from a previous cycle or mentioned in a prompt.
 
+**There are two accounts (since 7 Oct 2026), and every cycle covers both.**
+They are listed in `config.json -> accounts`: `margin` (Individual Margin
+5MS75613) and `cash` (Individual Cash CVY4GAV6). Refresh each one separately
+with the local Webull tools, which take an `account` argument:
+`mcp__webull__get_positions(account=...)` and `mcp__webull__get_account(account=...)`,
+then `kb.py sync-positions --json '{"account": "<name>", "positions": [...]}'`
+once per account. (The claude.ai Webull connector only sees the margin
+account, so it cannot do the cash side.) Report each account's holdings,
+value and cash under its own name.
+
 If Webull is down, say so loudly and stop: without the real portfolio you do not
 know what you hold, and every downstream judgement would be about the wrong
 account. This is the one failure that halts a cycle rather than degrading it.
@@ -125,6 +135,19 @@ expiry (same day, this week, or a named date). The execution agent picks the
 contract, prices it from live quotes and sizes it in whole contracts within
 the per-trade cap. An option's max loss is the premium paid unless the stop
 fires first -- say that in dollars.
+
+**Both accounts, every cycle.** A setup worth taking is sized and checked
+once PER ACCOUNT in `config.json -> accounts`: each has its own size, its own
+limits (the `cash` account runs riskier limits, set in its `risk` block),
+and its own risk.py verdict. Put `"account": "<name>"` in the TradeProposal
+and pass THAT account's `get_account` payload (it carries `account` and, for
+cash, `settled_cash`) plus `market_status`. A `cash` proposal is sized from
+its settled cash, never its total value: buying with unsettled money and
+selling before it settles is a good-faith violation, which gets a cash
+account restricted. risk.py enforces that, and it rejects every new entry
+on an account whose `trading_enabled` is false, so propose for it anyway and
+report the rejection. Options on `cash` wait until Webull shows option
+buying power there; until then risk.py rejects them on buying power.
 
 Any trade proposal goes through `python3 lib/risk.py` before it reaches Andre.
 You do not have discretion here and neither does the Execution Agent. A rejected

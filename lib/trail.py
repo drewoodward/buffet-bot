@@ -24,6 +24,11 @@ agent fills via `kb.py stop-open`):
 
 It only ever SELLS. It never opens or adds to a position.
 
+Every account in config.json `accounts` gets its own pass with its own broker
+connection (7 Oct 2026: margin and cash). A stops row belongs to the account
+in its `account` column, and is only ever matched against that account's
+positions and orders.
+
 It acts only when config.json execution_mode is live_direct. In any other mode,
 or with --dry-run, it prints what it would do and changes nothing.
 
@@ -103,13 +108,16 @@ def new_stop_for(row, price, high, rules):
 
 
 class Watcher:
-    def __init__(self, dry_run):
-        with open(CONFIG_PATH) as f:
-            self.cfg = json.load(f)
+    def __init__(self, dry_run, account="margin", cfg=None):
+        if cfg is None:
+            with open(CONFIG_PATH) as f:
+                cfg = json.load(f)
+        self.cfg = cfg
+        self.account = account
         self.rules = {**DEFAULT_RULES, **self.cfg.get("trailing", {})}
         self.live = self.cfg.get("execution_mode") == "live_direct" and not dry_run
         self.conn = connect()
-        self.broker = Broker()
+        self.broker = Broker(account)
         self.actions = []
         self.cycle_id = f"watch-{datetime.now(ET).date().isoformat()}"
 
@@ -117,7 +125,7 @@ class Watcher:
 
     def act(self, row, what, fn=None, **update):
         """Do one broker action (live) or describe it (dry run), then record it."""
-        label = f"{row['key']}: {what}"
+        label = f"[{self.account}] {row['key']}: {what}"
         result = None
         if self.live and fn is not None:
             try:
@@ -145,14 +153,15 @@ class Watcher:
             (self.cycle_id, "trail", decision, json.dumps(dict(row)), detail, now_iso()))
         self.conn.commit()
 
-    def notify(self):
-        if not self.actions or not self.live:
+    def notify(self, actions=None):
+        actions = self.actions if actions is None else actions
+        if not actions or not self.live:
             return
         token = os.environ.get("TELEGRAM_BOT_TOKEN")
         chat = self.cfg.get("telegram_chat_id") or os.environ.get("TELEGRAM_CHAT_ID")
         if not token or not chat:
             return
-        text = "Stop watcher:\n" + "\n".join(self.actions)
+        text = "Stop watcher:\n" + "\n".join(actions)
         data = urllib.parse.urlencode({"chat_id": chat, "text": text[:4000]}).encode()
         try:
             urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage", data, timeout=15)
@@ -204,12 +213,10 @@ class Watcher:
             self.open_refs = None
 
         rows = self.conn.execute(
-            "SELECT * FROM stops WHERE status IN ('pending_fill','active','exiting') ORDER BY id").fetchall()
+            "SELECT * FROM stops WHERE status IN ('pending_fill','active','exiting') AND account=? ORDER BY id",
+            (self.account,)).fetchall()
         for row in rows:
             self.handle(row, positions.get(row["key"]), now_et)
-        self.notify()
-        for a in self.actions:
-            print(a)
 
     def handle(self, row, pos, now_et):
         b = self.broker
@@ -303,13 +310,28 @@ def main():
     now_et = datetime.now(ET)
     if not args.force_hours and not market_hours(now_et):
         return
-    try:
-        w = Watcher(args.dry_run)
-        if not w.live:
-            print(f"[dry run] execution_mode={w.cfg.get('execution_mode')}, broker env={w.broker.env}")
-        w.run(now_et)
-    except BrokerError as e:
-        print(f"watcher could not run: {e}", file=sys.stderr)
+    with open(CONFIG_PATH) as f:
+        cfg = json.load(f)
+    accounts = list((cfg.get("accounts") or {"margin": {}}).keys())
+    # One account failing (bad id, Webull error) must not leave the other's
+    # stops unwatched, so each runs on its own and failures are collected.
+    actions, failed, last = [], [], None
+    for account in accounts:
+        try:
+            w = Watcher(args.dry_run, account, cfg)
+            if not w.live:
+                print(f"[dry run] [{account}] execution_mode={w.cfg.get('execution_mode')}, broker env={w.broker.env}")
+            w.run(now_et)
+            actions.extend(w.actions)
+            last = w
+        except BrokerError as e:
+            print(f"watcher could not run for {account}: {e}", file=sys.stderr)
+            failed.append(account)
+    if last is not None:
+        last.notify(actions)
+    for a in actions:
+        print(a)
+    if failed:
         sys.exit(1)
 
 

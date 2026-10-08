@@ -60,21 +60,35 @@ def notional(p):
     return round(p["limit_price"] * p["quantity"] * mult, 2)
 
 
-def count_recent_day_trades(conn):
+def account_settings(cfg, name):
+    """(account config, merged risk limits) for one account. config.json
+    `accounts` names each one; its `risk` block overrides the shared `risk`
+    block key by key. A config with no `accounts` section means the single
+    margin account this system had before 7 Oct 2026."""
+    accounts = cfg.get("accounts") or {"margin": {"type": "MARGIN"}}
+    if name not in accounts:
+        return None, None
+    acct = accounts[name]
+    return acct, {**cfg["risk"], **(acct.get("risk") or {})}
+
+
+def count_recent_day_trades(conn, account="margin"):
     """Counted from our own ledger. Webull's day_trades_left field reported
     UNLIMITED on a $271 margin account, which cannot be right, so we don't use it."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).date().isoformat()
-    row = conn.execute("SELECT COUNT(*) c FROM day_trades WHERE trade_date >= ?", (cutoff,)).fetchone()
+    row = conn.execute("SELECT COUNT(*) c FROM day_trades WHERE trade_date >= ? AND account=?",
+                       (cutoff, account)).fetchone()
     return row["c"]
 
 
-def would_be_day_trade(conn, ticker, side):
+def would_be_day_trade(conn, ticker, side, account="margin"):
     if side != "SELL":
         return False
     today = datetime.now(timezone.utc).date().isoformat()
     row = conn.execute(
-        "SELECT COUNT(*) c FROM orders WHERE ticker=? AND side='BUY' AND status='filled' AND date(resolved_at)=?",
-        (ticker, today),
+        "SELECT COUNT(*) c FROM orders WHERE ticker=? AND side='BUY' AND status='filled' AND date(resolved_at)=?"
+        " AND account=?",
+        (ticker, today, account),
     ).fetchone()
     return row["c"] > 0
 
@@ -120,7 +134,18 @@ def market_open_now(market_status=None):
 
 def evaluate(proposal, account):
     cfg = load_config()
-    r = cfg["risk"]
+    account_name = proposal.get("account") or account.get("account") or "margin"
+    acct, r = account_settings(cfg, account_name)
+    if acct is None:
+        return {"proposal_id": proposal.get("proposal_id"), "ticker": proposal["ticker"], "account": account_name,
+                "approved": False, "checks": [], "failed": ["account"],
+                "summary": f"REJECTED -- account '{account_name}' is not in config.json accounts"}
+    if account.get("account") and proposal.get("account") and account["account"] != proposal["account"]:
+        return {"proposal_id": proposal.get("proposal_id"), "ticker": proposal["ticker"], "account": account_name,
+                "approved": False, "checks": [], "failed": ["account"],
+                "summary": (f"REJECTED -- proposal is for '{proposal['account']}' but the account payload is "
+                            f"'{account['account']}'")}
+    is_cash = str(acct.get("type", "MARGIN")).upper() == "CASH"
     conn = connect()
     checks = []
 
@@ -131,21 +156,30 @@ def evaluate(proposal, account):
     mloss = max_loss_dollars(proposal)
     is_entry = proposal["side"] == "BUY"
 
+    # 0. The account is switched on for trading. Exits are always allowed.
+    enabled = acct.get("trading_enabled", True)
+    checks.append(_check(
+        "account_enabled", enabled or not is_entry,
+        f"account '{account_name}' trading_enabled={enabled}"
+        + ("" if enabled else " -- new entries blocked until config.json turns it on (exits still allowed)")))
+
     # 1. Stop is mandatory. Without one, max loss is undefined and sizing is a guess.
     checks.append(_check(
         "stop_present", proposal.get("stop_price") is not None,
         "every proposal must carry a stop; max loss is undefined without one"))
 
-    # 2. Per-trade size cap.
+    # 2. Per-trade size cap. Entries only -- a sell reduces exposure, and
+    # capping it blocked closing a position bigger than the cap (7 Oct 2026).
     cap = nlv * r["per_trade_pct"] / 100
     checks.append(_check(
-        "per_trade_cap", n <= cap,
-        f"${n:,.2f} against a ${cap:,.2f} cap ({r['per_trade_pct']}% of ${nlv:,.2f})",
+        "per_trade_cap", (not is_entry) or n <= cap,
+        f"${n:,.2f} against a ${cap:,.2f} cap ({r['per_trade_pct']}% of ${nlv:,.2f})"
+        + ("" if is_entry else " -- exit, cap applies to entries only"),
         notional=n, cap=round(cap, 2)))
 
     # 3. Per-ticker exposure cap, counting what is already held.
-    held = conn.execute("SELECT COALESCE(market_value,0) mv FROM positions WHERE ticker=?",
-                        (proposal["ticker"],)).fetchone()
+    held = conn.execute("SELECT COALESCE(market_value,0) mv FROM positions WHERE ticker=? AND account=?",
+                        (proposal["ticker"], account_name)).fetchone()
     held_mv = float(held["mv"]) if held else 0.0
     tcap = nlv * r["per_ticker_pct"] / 100
     combined = held_mv + (n if is_entry else 0)
@@ -166,11 +200,20 @@ def evaluate(proposal, account):
 
     # 5. Buying power. Options draw on Webull's separate option buying power
     # when the account payload carries it.
+    # A cash account may only spend SETTLED cash: buying with unsettled money
+    # and selling before it settles is a good-faith violation, and three of
+    # those in a year restrict the account to settled cash for 90 days.
     if proposal["instrument"] == "OPTION" and account.get("option_buying_power") is not None:
         bp = float(account["option_buying_power"])
+    bp_label = "available"
+    if is_cash:
+        if account.get("settled_cash") is None:
+            bp, bp_label = 0.0, "settled cash (not supplied -- pass settled_cash for a cash account)"
+        else:
+            bp, bp_label = min(bp, float(account["settled_cash"])), "settled cash available"
     checks.append(_check(
         "buying_power", (not is_entry) or n <= bp,
-        f"${n:,.2f} required against ${bp:,.2f} available", required=n, available=bp))
+        f"${n:,.2f} required against ${bp:,.2f} {bp_label}", required=n, available=bp))
 
     # 5b. Instrument rules Webull enforces anyway -- caught here so the
     # rejection names the rule instead of arriving as a broker error.
@@ -187,21 +230,27 @@ def evaluate(proposal, account):
             f"fractional order ${n:,.2f} against Webull's $5 minimum", notional=n))
 
     # 6. Pattern day trader rule.
-    dt_count = count_recent_day_trades(conn)
-    is_dt = would_be_day_trade(conn, proposal["ticker"], proposal["side"])
+    # It applies to margin accounts only; a cash account is held to settled
+    # cash instead (check 5).
+    dt_count = count_recent_day_trades(conn, account_name)
+    is_dt = would_be_day_trade(conn, proposal["ticker"], proposal["side"], account_name)
     pdt_ok = True
     pdt_detail = f"{dt_count} day trades in the trailing 5 sessions; equity ${nlv:,.2f}"
-    if nlv < r["pdt_equity_floor"] and is_dt and dt_count >= r["pdt_max_day_trades"]:
+    if is_cash:
+        pdt_detail = "cash account: the pattern day trader rule does not apply (settled-cash rule instead)"
+    elif nlv < r["pdt_equity_floor"] and is_dt and dt_count >= r["pdt_max_day_trades"]:
         pdt_ok = False
         pdt_detail += f" -- this would be day trade #{dt_count + 1} under the ${r['pdt_equity_floor']:,.0f} floor"
     checks.append(_check("pdt", pdt_ok, pdt_detail, day_trades_used=dt_count, would_be_day_trade=is_dt))
 
     # 7. Duplicate of an order already working.
     dup = conn.execute(
-        "SELECT COUNT(*) c FROM orders WHERE ticker=? AND side=? AND status IN ('proposed','awaiting_confirm')",
-        (proposal["ticker"], proposal["side"])).fetchone()["c"]
+        "SELECT COUNT(*) c FROM orders WHERE ticker=? AND side=? AND account=?"
+        " AND status IN ('proposed','awaiting_confirm')",
+        (proposal["ticker"], proposal["side"], account_name)).fetchone()["c"]
     checks.append(_check("no_duplicate", dup == 0,
-                         f"{dup} open {proposal['side']} order(s) already working on {proposal['ticker']}"))
+                         f"{dup} open {proposal['side']} order(s) already working on {proposal['ticker']}"
+                         f" in {account_name}"))
 
     # 8. Market hours.
     open_now, hours_detail = market_open_now(account.get("market_status"))
@@ -211,8 +260,8 @@ def evaluate(proposal, account):
     avg_ok = True
     avg_detail = "not an averaging-down entry"
     if is_entry and held_mv > 0:
-        pos = conn.execute("SELECT COALESCE(unrealized_pl,0) pl FROM positions WHERE ticker=?",
-                           (proposal["ticker"],)).fetchone()
+        pos = conn.execute("SELECT COALESCE(unrealized_pl,0) pl FROM positions WHERE ticker=? AND account=?",
+                           (proposal["ticker"], account_name)).fetchone()
         if pos and float(pos["pl"]) < 0:
             if not proposal.get("is_averaging_down"):
                 avg_ok = False
@@ -220,7 +269,7 @@ def evaluate(proposal, account):
             elif not proposal.get("averaging_rationale"):
                 avg_ok = False
                 avg_detail = "flagged as averaging down but no rationale given"
-            elif not cfg["risk"]["allow_averaging_down"]:
+            elif not r["allow_averaging_down"]:
                 avg_ok = False
                 avg_detail = "averaging down is disabled in config"
             else:
@@ -231,15 +280,16 @@ def evaluate(proposal, account):
     return {
         "proposal_id": proposal.get("proposal_id"),
         "ticker": proposal["ticker"],
+        "account": account_name,
         "approved": len(failed) == 0,
         "max_loss_dollars": mloss,
         "notional": n,
         "pct_of_account": round(n / nlv * 100, 2) if nlv else None,
         "checks": checks,
         "failed": [c["check"] for c in failed],
-        "summary": (f"APPROVED -- max loss ${mloss:,.2f} on ${n:,.2f} notional"
+        "summary": (f"APPROVED [{account_name}] -- max loss ${mloss:,.2f} on ${n:,.2f} notional"
                     if not failed else
-                    f"REJECTED -- {', '.join(c['check'] for c in failed)}"),
+                    f"REJECTED [{account_name}] -- {', '.join(c['check'] for c in failed)}"),
     }
 
 

@@ -28,7 +28,9 @@ are the design, not an oversight:
   reports the verdict.
 - **Only the orchestrator talks to Telegram.** No subagent has it. (The
   exception is `lib/trail.py`, which is a plain script, not an agent: it
-  messages when it moves a stop or sells.)
+  messages when it moves a stop or sells. The other is `chat/telegram_chat.py`,
+  the two-way chat, which sends Claude's replies itself; see "Telegram chat"
+  below.)
 
 ## Bugs already found and fixed. Do not reintroduce them.
 
@@ -317,6 +319,48 @@ cycles literally have no tool that can place a live order, matching how
 what "attended" means. Do not add `mcp__webull__*` anywhere else, standing
 allow or otherwise — that would turn "can't" back into "won't," which is the
 one thing this whole design exists to avoid.
+
+## Telegram chat (6 Oct 2026)
+
+Andre can text the bot. `chat/telegram_chat.py` (`buffet-bot-chat.service`,
+always on) long-polls the same Telegram bot. It drops any message that isn't
+from `TELEGRAM_CHAT_ID`, and runs `claude -p` here for each message, with
+`run-cycle.sh`'s tool grants (minus `mcp__telegram__*`) and `chat/CHAT.md`
+appended as system prompt. The conversation carries over via `--resume`; it
+resets on `/new` or after 6 h idle. Edits to CHAT.md only reach a fresh
+conversation. Transcripts are in `logs/chat/`.
+
+Orders, chosen by Andre on 6 Oct 2026. If he texts an order, it is placed with
+no confirmation. If the bot proposes an order, it goes to `chat/pending.json`
+and is placed only on his "yes" within 15 min. Both still go through
+`lib/risk.py`. An order message more than 10 min old is not executed. The
+listener advances the Telegram offset before handling a message, so a crash
+can't replay an order. Nothing else may call `getUpdates` on this bot token.
+
+## Two accounts (7 Oct 2026)
+
+Andre added an Individual Cash account (CVY4GAV6) and wants every cycle to
+trade it alongside Individual Margin (5MS75613), at riskier limits, with
+options once its funds settle. `config.json -> accounts` lists both. Each
+has its own `trading_enabled` flag and a `risk` block that overrides the
+shared one. The Open API ids are in `.env`: `WEBULL_ACCOUNT_ID` (margin) and
+`WEBULL_ACCOUNT_ID_CASH`.
+
+- Every `mcp__webull__*` tool takes `account` (default `margin`).
+  `webull_broker.Broker(name)` reads `WEBULL_ACCOUNT_ID_<NAME>`. The
+  claude.ai Webull connector only sees margin.
+- `orders`, `stops`, `day_trades` and `positions` have an `account` column.
+  `kb.py` migrated the old rows to `margin` on first connect.
+  `sync-positions` takes `{"account", "positions"}` and replaces only that
+  account's rows.
+- risk.py: the pattern day trader rule is margin-only. A cash account's entries are
+  capped at settled cash, to avoid good-faith violations. Entries on an
+  account with `trading_enabled: false` are rejected; exits are allowed.
+- trail.py runs one pass per account. One account failing doesn't stop the
+  other.
+- A cash account's balance has `buying_power` + `settled_cash`, not
+  `day_buying_power` (confirmed 7 Oct 2026). Fractional orders, stops and
+  option orders have not been tried on the cash account yet.
 
 ## How Andre wants to be talked to
 

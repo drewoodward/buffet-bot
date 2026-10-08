@@ -30,6 +30,8 @@ does not linkify a bare domain.
 HARD RULES
 - Execution mode comes from config.json. Do not override it.
 - Every proposal passes lib/risk.py first, with market_status in the account payload.
+- Both accounts in config.json `accounts` (margin and cash), every cycle: refresh,
+  size, risk-check and report each one separately (orchestrator.md steps 3 and 7).
   The market-hours check fails closed without it, on purpose.
 - Max loss in DOLLARS on every proposal. Report rejected proposals too, with the limit
   that stopped them.

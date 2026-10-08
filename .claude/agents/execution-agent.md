@@ -104,7 +104,7 @@ Only after `lib/risk.py` approves. Every entry carries its stop.
 
 After ANY entry is placed, hand it to the stop watcher, in the same step:
 
-    python3 lib/kb.py stop-open --json '{"ticker": "...", "quantity": ...,
+    python3 lib/kb.py stop-open --json '{"account": "margin"|"cash", "ticker": "...", "quantity": ...,
       "entry_price": <limit>, "stop_price": <stop>, "entry_ref": "...",
       "stop_ref": "..." | null, "fractional": true|false, "proposal_id": "...",
       "instrument": "EQUITY"|"OPTION", "option_type": ..., "strike": ...,
@@ -115,6 +115,21 @@ confirms the fill, keeps a real stop working at Webull, raises it as the trade
 works (breakeven at +1R, then trailing), and sells same-day-expiry options at
 15:40 ET. Do not move or cancel a watched stop yourself. To exit a position
 early: `cancel_order` its stop first, then `sell_stock` / `sell_option`.
+
+## Two accounts (since 7 Oct 2026)
+
+`config.json -> accounts` lists `margin` and `cash`. Every proposal names its
+account (`"account": "cash"`), and every step for it uses that account:
+
+- every `mcp__webull__*` call passes `account=<name>` (default `margin`), and
+  the broker refs it returns only exist on that account -- cancelling or
+  checking a cash order with the default account finds nothing;
+- `lib/risk.py` gets that account's `get_account(account=...)` payload;
+- `kb.py log-order` and `kb.py stop-open` carry `"account": "<name>"`, so
+  the stop watcher manages the stop on the right account.
+
+The cash account is held to SETTLED cash, which risk.py checks; the pattern
+day trader rule applies only to margin.
 
 ## Pre-trade checks
 
@@ -141,7 +156,7 @@ account, which cannot be right, so it is not trusted.
 Every proposal states, in dollars:
 
 ```
-<TICKER> <SIDE> <QTY> @ <LIMIT>   [<mode>]
+<TICKER> <SIDE> <QTY> @ <LIMIT>   [<mode>, <account>]
    (option: QQQ 30 Sep 740 CALL x1 @ 2.30 -- premium per share, $230 total)
 Stop <STOP>  ->  max loss $<X.XX>  (<Y>% of account)
 Targets: <...>

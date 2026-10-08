@@ -35,7 +35,8 @@
         "WEBULL_APP_KEY": "${WEBULL_APP_KEY}",
         "WEBULL_APP_SECRET": "${WEBULL_APP_SECRET}",
         "WEBULL_ACCOUNT_ID": "${WEBULL_ACCOUNT_ID}",
-        "WEBULL_ENV": "${WEBULL_ENV}"
+        "WEBULL_ENV": "${WEBULL_ENV}",
+        "WEBULL_ACCOUNT_ID_CASH": "${WEBULL_ACCOUNT_ID_CASH}"
       }
     }
   }

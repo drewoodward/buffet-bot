@@ -37,7 +37,42 @@ def connect():
     conn.execute("PRAGMA journal_mode=TRUNCATE")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA synchronous=FULL")
+    migrate_accounts(conn)
     return conn
+
+
+def migrate_accounts(conn):
+    """Add the `account` column (7 Oct 2026, when the cash account joined the
+    margin one). Every row from before then belongs to the margin account,
+    which is what the default says. Idempotent; a no-op on a fresh database,
+    where SCHEMA already has the column."""
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    for t in ("orders", "stops", "day_trades"):
+        if t in tables and "account" not in {r[1] for r in conn.execute(f"PRAGMA table_info({t})")}:
+            conn.execute(f"ALTER TABLE {t} ADD COLUMN account TEXT NOT NULL DEFAULT 'margin'")
+    # positions was keyed on ticker alone; two accounts can hold the same one.
+    if "positions" in tables and "account" not in {r[1] for r in conn.execute("PRAGMA table_info(positions)")}:
+        conn.executescript("""
+            BEGIN;
+            CREATE TABLE positions_new (
+              account TEXT NOT NULL DEFAULT 'margin',
+              ticker TEXT NOT NULL,
+              quantity REAL NOT NULL,
+              cost_basis REAL,
+              market_value REAL,
+              unrealized_pl REAL,
+              asset_type TEXT DEFAULT 'EQUITY',
+              opened_at TEXT,
+              synced_at TEXT NOT NULL,
+              PRIMARY KEY (account, ticker)
+            );
+            INSERT INTO positions_new(account,ticker,quantity,cost_basis,market_value,unrealized_pl,asset_type,opened_at,synced_at)
+              SELECT 'margin',ticker,quantity,cost_basis,market_value,unrealized_pl,asset_type,opened_at,synced_at FROM positions;
+            DROP TABLE positions;
+            ALTER TABLE positions_new RENAME TO positions;
+            COMMIT;
+        """)
+    conn.commit()
 
 
 SCHEMA = """
@@ -48,14 +83,16 @@ CREATE TABLE IF NOT EXISTS meta (
 
 -- Snapshot of the real portfolio, refreshed from Webull at the top of every cycle.
 CREATE TABLE IF NOT EXISTS positions (
-  ticker TEXT PRIMARY KEY,
+  account TEXT NOT NULL DEFAULT 'margin',
+  ticker TEXT NOT NULL,
   quantity REAL NOT NULL,
   cost_basis REAL,
   market_value REAL,
   unrealized_pl REAL,
   asset_type TEXT DEFAULT 'EQUITY',
   opened_at TEXT,
-  synced_at TEXT NOT NULL
+  synced_at TEXT NOT NULL,
+  PRIMARY KEY (account, ticker)
 );
 
 -- Append-only. A thesis is never UPDATEd; a change writes a new row pointing at
@@ -176,7 +213,8 @@ CREATE TABLE IF NOT EXISTS orders (
   resolved_at TEXT,
   fill_price REAL,
   is_day_trade INTEGER DEFAULT 0,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  account TEXT NOT NULL DEFAULT 'margin'
 );
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status, created_at DESC);
 
@@ -208,7 +246,8 @@ CREATE TABLE IF NOT EXISTS day_trades (
   ticker TEXT,
   trade_date TEXT NOT NULL,
   order_id INTEGER,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  account TEXT NOT NULL DEFAULT 'margin'
 );
 
 -- One row per open position the stop watcher (lib/trail.py) manages. The
@@ -237,7 +276,8 @@ CREATE TABLE IF NOT EXISTS stops (
   note TEXT,
   opened_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  closed_at TEXT
+  closed_at TEXT,
+  account TEXT NOT NULL DEFAULT 'margin'
 );
 CREATE INDEX IF NOT EXISTS idx_stops_status ON stops(status);
 
@@ -263,20 +303,27 @@ def cmd_init(args):
 
 
 def cmd_sync_positions(args):
-    """Replace the position snapshot wholesale. Payload is the Webull positions array."""
+    """Replace one account's position snapshot wholesale. Payload is either
+    {"account": "cash", "positions": [...]} or, as before 7 Oct 2026, the bare
+    Webull positions array, which means the margin account. Only that
+    account's rows are replaced."""
     payload = json.loads(args.json)
+    if isinstance(payload, dict):
+        account, positions = payload.get("account", "margin"), payload.get("positions") or []
+    else:
+        account, positions = "margin", payload
     conn = connect()
     ts = now()
-    conn.execute("DELETE FROM positions")
-    for p in payload:
+    conn.execute("DELETE FROM positions WHERE account=?", (account,))
+    for p in positions:
         conn.execute(
-            "INSERT INTO positions(ticker,quantity,cost_basis,market_value,unrealized_pl,asset_type,opened_at,synced_at)"
-            " VALUES(?,?,?,?,?,?,?,?)",
-            (p.get("ticker"), float(p.get("quantity", 0)), _f(p.get("cost_basis")), _f(p.get("market_value")),
+            "INSERT INTO positions(account,ticker,quantity,cost_basis,market_value,unrealized_pl,asset_type,opened_at,synced_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?)",
+            (account, p.get("ticker"), float(p.get("quantity", 0)), _f(p.get("cost_basis")), _f(p.get("market_value")),
              _f(p.get("unrealized_pl")), p.get("asset_type", "EQUITY"), p.get("opened_at"), ts),
         )
     conn.commit()
-    print(json.dumps({"ok": True, "count": len(payload), "synced_at": ts}))
+    print(json.dumps({"ok": True, "account": account, "count": len(positions), "synced_at": ts}))
 
 
 def _f(v):
@@ -354,7 +401,7 @@ def cmd_stale(args):
                                         "price": r["price"], "timeframe": r["timeframe"], "age_days": age})
 
     for r in conn.execute("""
-        SELECT p.ticker FROM positions p
+        SELECT DISTINCT p.ticker FROM positions p
         LEFT JOIN thesis_versions t ON t.ticker = p.ticker
         WHERE t.id IS NULL
     """):
@@ -401,15 +448,15 @@ def cmd_log_order(args):
     cur = conn.execute(
         "INSERT INTO orders(mode,ticker,side,quantity,order_type,limit_price,time_in_force,"
         "instrument,entry_zone,stop_price,target_price,max_loss_dollars,rationale,proposal_id,"
-        "status,reject_reason,broker_ref,submitted_at,created_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "status,reject_reason,broker_ref,submitted_at,created_at,account)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (p["mode"], p["ticker"], p["side"], _f(p.get("quantity")), p.get("order_type"),
          _f(p.get("limit_price")), p.get("time_in_force"), p.get("instrument"),
          p.get("entry_zone"), _f(p.get("stop_price")),
          json.dumps(p.get("targets")) if p.get("targets") is not None else None,
          _f(p.get("max_loss_dollars")), p.get("rationale"), p.get("proposal_id"),
          p["status"], p.get("reject_reason"), p.get("broker_ref"),
-         p.get("submitted_at") or now(), now()),
+         p.get("submitted_at") or now(), now(), p.get("account", "margin")),
     )
     conn.commit()
     print(json.dumps({"ok": True, "id": cur.lastrowid}))
@@ -442,10 +489,10 @@ def cmd_resolve_order(args):
         sys.exit(2)
 
     if p.get("is_day_trade"):
-        row = conn.execute(f"SELECT id, ticker FROM orders WHERE {where_col}=?", (where_val,)).fetchone()
+        row = conn.execute(f"SELECT id, ticker, account FROM orders WHERE {where_col}=?", (where_val,)).fetchone()
         conn.execute(
-            "INSERT INTO day_trades(ticker,trade_date,order_id,created_at) VALUES(?,?,?,?)",
-            (row["ticker"], resolved_at[:10], row["id"], resolved_at),
+            "INSERT INTO day_trades(ticker,trade_date,order_id,created_at,account) VALUES(?,?,?,?,?)",
+            (row["ticker"], resolved_at[:10], row["id"], resolved_at, row["account"]),
         )
     conn.commit()
     print(json.dumps({"ok": True, where_col: where_val, "status": p["status"]}))
@@ -467,15 +514,16 @@ def cmd_stop_open(args):
     ts = now()
     cur = conn.execute(
         "INSERT INTO stops(key,ticker,instrument,option_type,strike,expiry,quantity,entry_price,initial_stop,"
-        "current_stop,high_water,fractional,entry_ref,stop_ref,proposal_id,status,opened_at,updated_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "current_stop,high_water,fractional,entry_ref,stop_ref,proposal_id,status,opened_at,updated_at,account)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (key, p["ticker"].upper(), instrument, (p.get("option_type") or "").upper() or None, _f(p.get("strike")),
          p.get("expiry"), float(p["quantity"]), float(p["entry_price"]), float(p["stop_price"]),
          float(p["stop_price"]), float(p["entry_price"]), 1 if p.get("fractional") else 0,
-         p.get("entry_ref"), p.get("stop_ref"), p.get("proposal_id"), "pending_fill", ts, ts),
+         p.get("entry_ref"), p.get("stop_ref"), p.get("proposal_id"), "pending_fill", ts, ts,
+         p.get("account", "margin")),
     )
     conn.commit()
-    print(json.dumps({"ok": True, "id": cur.lastrowid, "key": key}))
+    print(json.dumps({"ok": True, "id": cur.lastrowid, "key": key, "account": p.get("account", "margin")}))
 
 
 def cmd_cycle_open(args):

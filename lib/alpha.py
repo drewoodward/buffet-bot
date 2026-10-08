@@ -132,6 +132,12 @@ def cmd_score(args):
     if not row:
         print(json.dumps({"ok": False, "error": "no such call"}))
         sys.exit(2)
+    # Backfill only: calls ingested without a price_at_call can't be scored.
+    # A stored price_at_call is never overwritten.
+    if row["price_at_call"] is None and p.get("price_at_call") is not None:
+        conn.execute("UPDATE alpha_calls SET price_at_call=? WHERE id=?",
+                     (float(p["price_at_call"]), p["call_id"]))
+        row = conn.execute("SELECT price_at_call, direction FROM alpha_calls WHERE id=?", (p["call_id"],)).fetchone()
     start, end = row["price_at_call"], float(p["price_at_horizon"])
     direction = row["direction"]
     pct = None

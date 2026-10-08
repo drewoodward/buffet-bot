@@ -1,0 +1,19 @@
+[Unit]
+Description=buffet bot — two-way Telegram chat
+After=network-online.target tradingview-cdp.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/buffet-bot
+# Same PATH fix as buffet-bot@.service: the user manager doesn't inherit the
+# shell's PATH, and without it `claude` isn't found.
+Environment=PATH=%h/.local/bin:%h/bin:/usr/local/bin:/usr/bin:/var/lib/snapd/snap/bin
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=%h/buffet-bot/.env
+ExecStart=/usr/bin/python3 %h/buffet-bot/chat/telegram_chat.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

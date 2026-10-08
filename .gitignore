@@ -23,3 +23,6 @@ inbox/*
 __pycache__/
 *.pyc
 .DS_Store
+chat/state.json
+chat/state.json.tmp
+chat/pending.json
