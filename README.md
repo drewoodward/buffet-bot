@@ -4,6 +4,106 @@ Multi-agent system: an orchestrator that owns the workflow, four specialised
 subagents, a knowledge base that survives between runs, and a risk engine that
 is not allowed to be talked out of anything.
 
+## Architecture
+
+Everything runs on one Linux host (millie). The diagram reads top to bottom:
+what starts a run, who does the thinking, where the data comes from, what is
+allowed to touch real money, and where the results go.
+
+```
+ TRIGGERS (systemd --user timers, America/New_York, weekdays)
+ ─────────────────────────────────────────────────────────────────────────────
+  07:00 premarket   09:10 alpha-check   10:00 intraday   16:30 postclose
+        │                 │                   │                │
+        └─────────────────┴─────────┬─────────┴────────────────┘
+                                    ▼
+                     buffet-bot@<cycle>.service      Andre's phone (Telegram)
+                                    │                         │ texts
+                                    ▼                         ▼
+                      run-cycle.sh <cycle>           chat/telegram_chat.py
+                      (claude -p + cycles/*.md,      (always on; ignores anyone
+                       --allowedTools grants)         but TELEGRAM_CHAT_ID;
+                                    │                 claude -p + chat/CHAT.md)
+                                    │                         │
+                                    ▼                         ▼
+ ┌───────────────────────────────────────────────────────────────────────────┐
+ │                  ORCHESTRATOR  (agents/orchestrator.md)                   │
+ │  owns the cycle: health-check sources → refresh positions → fan out →     │
+ │  reconcile → propose → risk → execute → report.  Only it talks to Telegram│
+ └──┬──────────────────┬───────────────────┬──────────────────┬──────────────┘
+    │                  │                   │                  │
+    ▼                  ▼                   ▼                  ▼
+ ┌────────────┐  ┌──────────────┐  ┌───────────────┐  ┌────────────────────┐
+ │ NEWS AGENT │  │  TECHNICAL   │  │ KNOWLEDGE-BASE│  │  EXECUTION AGENT   │
+ │            │  │  ANALYST     │  │ AGENT         │  │                    │
+ │ news +     │  │ charts only. │  │ records only. │  │ no discretion over │
+ │ materiality│  │ NO news tools│  │ NO market data│  │ risk: runs risk.py,│
+ │ scoring    │  │ (stays blind │  │ (no thesis to │  │ places, logs, hands│
+ │            │  │ to narrative)│  │ protect). The │  │ each entry to the  │
+ │            │  │              │  │ ONLY KB writer│  │ stop watcher       │
+ └─────┬──────┘  └──────┬───────┘  └───────┬───────┘  └─────────┬──────────┘
+       │                │                  │                    │
+       ▼                ▼                  ▼                    ▼
+  Web search       TradingView MCP     lib/kb.py            lib/risk.py
+  Webull connector  (CDP :9222 →        │                  per-trade / per-ticker
+  (claude.ai)       chromium,           ▼                  caps, daily-loss halt,
+                    ~/.tv-profile)   kb.sqlite             PDT (margin only),
+                   Schwab MCP        positions, theses,    settled cash (cash),
+                    (options, when    events, orders,      venue MARKET_STATUS
+                     connected)       stops, day_trades,   (mandatory)
+                                      Kevin's scored calls      │ APPROVED
+                                                                ▼
+                                      ┌───────────────────────────────────────┐
+                                      │ ~/mcp/webull-mcp  (mcp__webull__*)    │
+                                      │ webull_broker.py, official Open API   │
+                                      │ SDK. REAL orders, account= margin|cash│
+                                      └──────────────────┬────────────────────┘
+                                                         ▼
+                                      Webull: Individual Margin  5MS75613
+                                              Individual Cash    CVY4GAV6
+
+ SHARED DATA SOURCES (claude.ai account connectors unless noted)
+ ─────────────────────────────────────────────────────────────────────────────
+  Alpha Vantage ── MARKET_STATUS (venue clock), macro series, prices
+  Webull ───────── quotes, fundamentals, positions, balances (margin only)
+  Google Drive ─── Kevin's Alpha Report inbox #2     inbox/ ── inbox #1 (local)
+  Google Calendar ─ catalyst dates                   lib/alpha.py ── ingest,
+  Gmail ─────────── Alpha Report email                 archive/alpha/, scoring
+
+ BETWEEN CYCLES
+ ─────────────────────────────────────────────────────────────────────────────
+  buffet-bot-watch.timer (every 5 min, 09:30–16:00)
+        │
+        ▼
+  lib/trail.py ── one pass per account. reads `stops` in kb.sqlite, checks
+        │        Webull, trails stops up (never down), re-places lapsed option
+        │        stops, sells fractional positions itself (Webull can't hold a
+        │        stop on them), closes options on expiry day. Only ever SELLS.
+        └──────► Telegram message whenever it moves a stop or sells
+
+ OUTPUTS
+ ─────────────────────────────────────────────────────────────────────────────
+  orchestrator ─► reports/<cycle>.json + PNG charts (lib/charts.py, never SVG)
+        │
+        ├──► Telegram MCP ───────────► Andre's phone (cycle summary)
+        ├──► lib/publish.py ─► /srv/buffet-bot/ (one-way, read-only to others)
+        │                          │
+        │                          ▼
+        │        OpenClaw dashboard plugin (separate user, uid 1001; no
+        │        credentials, cannot read /home/millie) ─► Tailscale ─► phone
+        └──► Cowork artifact (claude.ai, no-tailnet fallback)
+
+ HOW AN ORDER HAPPENS (every path goes through risk.py; none can skip it)
+ ─────────────────────────────────────────────────────────────────────────────
+  scheduled cycle ── proposal ─────────────────────────┐
+  Andre texts an order ("buy $100 of NVDA") ───────────┼─► risk.py ─► webull
+  bot proposes in chat ─► chat/pending.json ─► "yes" ──┘    │          │
+                          (expires 15 min)                  │ reject   ▼
+                                                            ▼     kb log-order
+                                                   reported, not  kb stop-open
+                                                   placed         → trail.py
+```
+
 ## Setup
 
 A complete walkthrough from a fresh clone to a working scheduled cycle. Follow
